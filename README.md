@@ -12,6 +12,10 @@ TypeSafe documents Jev as a System One model: structured state in, typed decisio
 
 The core integration is the one-call SDK or CLI. MCP is an optional compatibility adapter for Agents that already load tools through MCP; it exposes one `jev_route` tool and does not execute the selected capability implicitly.
 
+## Benchmark snapshot
+
+We evaluated Jev on 10 Toolathlon tasks by predicting each task's first five ordered tool calls, comparing it with DeepSeek V4.1 Flash. In serial mode, Jev reached **38% position-wise accuracy** versus 24%, achieved a **0.9 mean longest common prefix** versus 0.5, ran about **5.5× faster** (1.58s vs 8.65s per task), and cost about **7× less** ($0.0058 vs $0.0407 for 10 tasks). The experiment measures ordered routing decisions, not end-to-end task completion.
+
 ## Quick start
 
 ```bash
