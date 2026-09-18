@@ -47,7 +47,9 @@ export async function plan(input: RouteInput, options: PlanOptions = {}): Promis
     diversity_penalty: options.diversity_penalty,
     group_by: options.group_by,
     decompose: options.decompose,
+    thread_context: options.thread_context,
     state_detail: options.state_detail,
+    plan_hint: options.plan_hint,
   });
 }
 

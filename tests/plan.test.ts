@@ -194,3 +194,19 @@ test("serial plan includes the plan sketch in every step state", async () => {
   assert.match(provider.calls[0].state, /Plan sketch:\n1\. do first thing\n2\. do second thing/);
   assert.match(provider.calls[1].state, /Plan sketch/);
 });
+
+test("sequence reranking does not select a candidate whose input schema rejects the request", async () => {
+  const schemaCandidates: CapabilityManifest[] = [
+    { id: "a.read", name: "Read", type: "mcp_tool", description: "read", input_schema: { type: "object", required: ["path"], properties: { path: { type: "string" } } } },
+    { id: "b.write", name: "Write", type: "mcp_tool", description: "write", input_schema: { type: "object", required: ["content"], properties: { content: { type: "string" } } } },
+  ];
+  const provider = new RecordingProvider((_request, index) => ({
+    answers: { tool: choiceAnswer(index === 0 ? "a.read" : "a.read", { "a.read": index === 0 ? 0.6 : 0.55, "b.write": index === 0 ? 0.4 : 0.45 }, 0.9) },
+  }));
+  const plan = await new JevRouter(provider, { min_confidence: 0 }).plan(
+    { request: "read then write", input: { path: "a.txt" } }, schemaCandidates,
+    { steps: 2, mode: "serial", diversity_penalty: 1 },
+  );
+  assert.equal(plan.steps[1].decision.selected, "a.read");
+  assert.equal(plan.steps[1].decision.input_validation?.valid, true);
+});
