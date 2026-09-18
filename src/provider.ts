@@ -1,6 +1,7 @@
 import type {
   CapabilityManifest,
   JevChoiceAnswer,
+  JevChoiceQuestion,
   JevRawResponse,
   JevProvider,
   JevRouteRequest,
@@ -8,6 +9,23 @@ import type {
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { clamp, sha256 } from "./utils.js";
+
+export const DEFAULT_TOOL_QUESTION = "tool";
+export const DEFAULT_QUESTION_INSTRUCTIONS = "Which single capability should handle this request? Choose only from the supplied options.";
+
+/** Build the questions payload: the caller-supplied batch, or the single default tool question. */
+function buildQuestions(request: JevRouteRequest): Record<string, { type: "choice"; instructions: string; criteria: Record<string, string> }> {
+  const criteria = Object.fromEntries(
+    request.candidates.map((candidate) => [candidate.id, describeCapability(candidate)]),
+  );
+  const requested: Record<string, JevChoiceQuestion> = request.questions ?? { [DEFAULT_TOOL_QUESTION]: {} };
+  return Object.fromEntries(
+    Object.entries(requested).map(([key, question]) => [
+      key,
+      { type: "choice" as const, instructions: question.instructions ?? DEFAULT_QUESTION_INSTRUCTIONS, criteria },
+    ]),
+  );
+}
 
 export class JevProviderError extends Error {
   constructor(
@@ -40,9 +58,6 @@ export class HttpJevProvider implements JevProvider {
   }
 
   async decide(request: JevRouteRequest): Promise<JevRawResponse> {
-    const criteria = Object.fromEntries(
-      request.candidates.map((candidate) => [candidate.id, describeCapability(candidate)]),
-    );
     const response = await fetch(this.endpoint, {
       method: "POST",
       headers: {
@@ -52,13 +67,7 @@ export class HttpJevProvider implements JevProvider {
       body: JSON.stringify({
         state: request.state,
         model: request.model ?? this.model,
-        questions: {
-          tool: {
-            type: "choice",
-            instructions: "Which single capability should handle this request? Choose only from the supplied options.",
-            criteria,
-          },
-        },
+        questions: buildQuestions(request),
       }),
       signal: AbortSignal.timeout(this.timeoutMs),
     }).catch((error: unknown) => {
@@ -103,13 +112,7 @@ export class OpenRouterJevProvider implements JevProvider {
       body: JSON.stringify({
         state: request.state,
         model: this.model,
-        questions: {
-          tool: {
-            type: "choice",
-            instructions: "Which single capability should handle this request? Choose only from the supplied options.",
-            criteria: Object.fromEntries(request.candidates.map((candidate) => [candidate.id, describeCapability(candidate)])),
-          },
-        },
+        questions: buildQuestions(request),
       }),
       signal: AbortSignal.timeout(this.timeoutMs),
     }).catch((error: unknown) => {
@@ -142,7 +145,7 @@ export class CachedJevProvider implements JevProvider {
   }
 
   async decide(request: JevRouteRequest): Promise<JevRawResponse> {
-    const key = sha256({ provider: this.inner.name, state: request.state, candidates: request.candidates });
+    const key = sha256({ provider: this.inner.name, state: request.state, candidates: request.candidates, questions: request.questions ?? null });
     const path = join(this.directory, `${key.slice("sha256:".length)}.json`);
     try {
       return JSON.parse(await readFile(path, "utf8")) as JevRawResponse;
@@ -179,27 +182,22 @@ export class DemoProvider implements JevProvider {
     const confidence = rawScores.length <= 1
       ? 1
       : clamp((top - 1 / rawScores.length) / Math.max(1 - 1 / rawScores.length, 0.0001));
+    const answer: JevChoiceAnswer = { type: "choice", choice: choice ?? "", probabilities, confidence };
+    const questionKeys = Object.keys(request.questions ?? { [DEFAULT_TOOL_QUESTION]: {} });
     return {
       model: "jevrouter-demo",
-      answers: {
-        tool: {
-          type: "choice",
-          choice,
-          probabilities,
-          confidence,
-        },
-      },
+      answers: Object.fromEntries(questionKeys.map((key) => [key, answer])),
       usage: { input_tokens: request.state.length, output_tokens: 0 },
     };
   }
 }
 
-export function getChoiceAnswer(raw: JevRawResponse): JevChoiceAnswer {
-  const answer = raw.answers?.tool;
-  if (!answer || typeof answer !== "object") throw new JevProviderError("jev_malformed_response", "Jev response is missing answers.tool");
+export function getChoiceAnswer(raw: JevRawResponse, key: string = DEFAULT_TOOL_QUESTION): JevChoiceAnswer {
+  const answer = raw.answers?.[key];
+  if (!answer || typeof answer !== "object") throw new JevProviderError("jev_malformed_response", `Jev response is missing answers.${key}`);
   const value = answer as Record<string, unknown>;
   if (value.type !== "choice" || typeof value.choice !== "string" || !value.probabilities || typeof value.probabilities !== "object") {
-    throw new JevProviderError("jev_malformed_response", "answers.tool is not a Choice answer");
+    throw new JevProviderError("jev_malformed_response", `answers.${key} is not a Choice answer`);
   }
   const probabilities: Record<string, number> = {};
   for (const [key, probability] of Object.entries(value.probabilities as Record<string, unknown>)) {

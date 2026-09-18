@@ -7,7 +7,7 @@ import { discoverMcpConfig } from "./mcp.js";
 import { discoverClis, discoverDsh, discoverSkills } from "./discovery.js";
 import { JevRouter } from "./router.js";
 import { createProvider } from "./runtime.js";
-import { saveDecision } from "./store.js";
+import { saveDecision, savePlan } from "./store.js";
 import type { CapabilityManifest, RouteInput } from "./types.js";
 import { startMcpServer } from "./mcp-server.js";
 
@@ -22,6 +22,7 @@ async function main(): Promise<void> {
     if (command === "discover") return await discover(rest);
     if (command === "decision") return await decision(rest);
     if (command === "route") return await route(rest);
+    if (command === "plan") return await plan(rest);
     if (command === "serve") return await serve(rest);
     if (command === "serve-mcp") return await serveMcp(rest);
     printHelp();
@@ -84,6 +85,23 @@ async function route(args: string[]): Promise<void> {
   const input = inputText === undefined ? undefined : JSON.parse(inputText);
   const result = await new JevRouter(provider, policy).route({ request, actor, actor_permissions: actorPermissions, input }, candidates);
   const outputPath = await saveDecision(result);
+  console.log(JSON.stringify({ ...result, saved_to: outputPath }, null, 2));
+}
+
+async function plan(args: string[]): Promise<void> {
+  const request = option(args, "--request");
+  if (!request) throw new Error("usage: jevrouter plan --request \"...\" [--steps 5] [--mode batch|serial] [--provider demo|typesafe|openrouter]");
+  const steps = option(args, "--steps") === undefined ? undefined : Number(option(args, "--steps"));
+  const mode = option(args, "--mode");
+  if (mode !== undefined && mode !== "batch" && mode !== "serial") throw new Error("--mode must be batch or serial");
+  if (steps !== undefined && (!Number.isInteger(steps) || steps < 1)) throw new Error("--steps must be a positive integer");
+  const policy = await loadPolicyFile(option(args, "--policy") ?? join(root, ".jevrouter", "policy.json"));
+  const provider = createProvider(option(args, "--provider"));
+  const candidates = await registry.list();
+  const actorPermissions = option(args, "--actor-permissions")?.split(",").map((value) => value.trim()).filter(Boolean);
+  const actor = option(args, "--actor");
+  const result = await new JevRouter(provider, policy).plan({ request, actor, actor_permissions: actorPermissions }, candidates, { steps, mode });
+  const outputPath = await savePlan(result);
   console.log(JSON.stringify({ ...result, saved_to: outputPath }, null, 2));
 }
 
@@ -159,6 +177,7 @@ Commands:
   discover [--skills <dir>] [--mcp <mcp.json>] [--cli git,docker] [--dsh <dir-or-file>]
   decision show <decision-id>
   route --request "..." [--input '{"query":"..."}'] [--actor-permissions read,write] [--provider demo|typesafe|openrouter]
+  plan --request "..." [--steps 5] [--mode batch|serial] [--provider demo|typesafe|openrouter]
   serve [--port 8787] [--provider demo|typesafe|openrouter]
   serve-mcp [--provider demo|typesafe|openrouter]  stdio MCP server for Agents
 
