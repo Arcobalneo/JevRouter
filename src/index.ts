@@ -3,6 +3,7 @@ export * from "./manifest.js";
 export * from "./mcp.js";
 export * from "./discovery.js";
 export * from "./provider.js";
+export * from "./planning.js";
 export * from "./router.js";
 export * from "./runtime.js";
 export * from "./mcp-server.js";

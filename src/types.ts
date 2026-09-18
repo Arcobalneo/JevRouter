@@ -170,7 +170,29 @@ export interface RouteResult {
   };
 }
 
-export type PlanMode = "batch" | "serial";
+export type PlanMode = "batch" | "serial" | "decompose";
+
+/** Optional function that decomposes a multi-step request into ordered sub-goals. */
+export type DecomposeFn = (request: string) => string[] | Promise<string[]>;
+
+/** Strategy knobs for multi-step plans (see JevRouter.plan). */
+export interface PlanStrategy {
+  /** Batch mode: how to pick the sequence from per-step probability distributions. */
+  sequence?: "argmax" | "beam";
+  /** Beam mode: repetition penalty in nats per prior occurrence of a tool (0 = plain argmax). */
+  diversity_penalty?: number;
+  /** Hierarchical routing per step: coarse Choice over candidate groups, then a Choice within the winning group. */
+  group_by?: "server" | "type";
+  /** Decompose the request into sub-goals first, then route each sub-goal as a single-step decision. */
+  decompose?: "rule" | DecomposeFn;
+  /** Serial/decompose modes: also apply the diversity penalty per step when re-ranking near-tied tools.
+   * In decompose mode, thread the original request and routing progress into each sub-goal's state. */
+  thread_context?: boolean;
+  /** Serial mode state detail: plain tool names, or names plus concrete targets extracted from the request. */
+  state_detail?: "names" | "targets";
+  /** Serial mode: include a plan sketch (ordered sub-goals) in every step's state. */
+  plan_hint?: string[];
+}
 
 /** One step of a multi-step plan: a full routing decision plus its step index (1-based). */
 export interface RoutePlanStep extends RouteResult {

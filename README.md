@@ -190,6 +190,19 @@ The plan contract reuses the routing contract per step:
 - Serial mode feeds only post-policy `selected` capabilities forward; a `no_decision` step adds nothing to the state.
 - Plans are saved append-only to `.jevrouter/plans/`, alongside decisions.
 
+### Plan strategies
+
+`plan()` accepts strategy knobs (CLI flags in parentheses):
+
+- `decompose: "rule" | DecomposeFn` (`--decompose rule`): split the request into ordered sub-goals first — built-in discourse-marker splitter, or an injected function (e.g. an LLM that sees the tool catalog) — then route each sub-goal as a single-step decision. Decomposition turns a multi-step request into the single-action questions Jev answers most confidently.
+- `thread_context: true`: in decompose mode, include the original request, the `Sub-goal k of N` marker, and the capabilities routed so far in each step's state.
+- `sequence: "beam"` with `diversity_penalty: λ` (`--sequence beam --diversity-penalty 2.0`): batch mode only. Instead of independent per-step argmax, beam-search the joint sequence over Jev's per-step probability distributions with a repetition penalty. Jev keeps its probabilities; `jev_choice` still reports the per-step argmax and the override is recorded in `fallback.reason`. The same `diversity_penalty` also enables per-step diversity re-ranking in serial/decompose modes.
+- `group_by: "server" | "type"` (`--group-by server`): hierarchical routing — a coarse Choice over candidate groups (manifest `metadata.group`/`metadata.server`, falling back to the capability type), then a Choice within the winning group. Both calls are preserved in `raw_jev_stages`.
+- `state_detail: "targets"` (`--state-detail targets`): serial mode adds concrete targets (files, URLs, identifiers) extracted from the request to the state.
+- `plan_hint: string[]` (SDK only): include an ordered plan sketch in every serial step's state.
+
+Measured on 10 Toolathlon tasks (first-5 tool-call prediction vs hand-labeled gold, real tool inventories from 9 live MCP servers, Jev `typesafe/jev-1.13-20260917`): position-wise hits went from 38% (serial baseline) to **44%** with tool-aware LLM decomposition + `thread_context`, unordered overlap from 54% to **58%**; batch mode with `sequence: "beam"` (λ=2.0) went from 28% to **36%** hits at zero extra provider calls. The same decompose+thread configuration lifted MCP-Atlas (10 tasks) from 29% to **44%** hits. Standalone `group_by` and `state_detail: "targets"` did not improve the baseline in these runs — they are available as options, and the negative result is documented for future tuning.
+
 ## Security posture
 
 - Decision-only is the only mode in this MVP; no CLI, Skill, MCP or DSH action runs implicitly.
