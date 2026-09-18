@@ -139,6 +139,10 @@
       letter-spacing: .1em;
       text-transform: uppercase;
     }
+    .agent-picker { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 10px; background: rgba(255, 255, 255, .035); }
+    .agent-choice { border: 0; border-radius: 7px; padding: 7px 11px; color: #8f8b9c; background: transparent; cursor: pointer; font: 11px var(--mono); transition: color .2s ease, background .2s ease, box-shadow .2s ease; }
+    .agent-choice:hover, .agent-choice:focus-visible { color: var(--ink); }
+    .agent-choice[aria-selected="true"] { color: var(--ink); background: rgba(255, 107, 181, .14); box-shadow: 0 0 0 1px rgba(255, 107, 181, .28) inset; }
     .copy {
       width: 30px;
       height: 30px;
@@ -234,11 +238,11 @@
       <div>
         <h1><span class="brand">JevRouter</span> Make every agent decision <em>faster.</em></h1>
         <div class="install" aria-label="Install and use JevRouter">
-          <div class="install-head"><span>AGENT QUICK START</span><button class="copy" type="button" data-copy aria-label="Copy code" title="Copy code"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></button></div>
-          <pre><code><span class="prompt">export OPENROUTER_API_KEY="your_key" &amp;&amp;</span>
+          <div class="install-head"><div class="agent-picker" role="tablist" aria-label="Choose your agent"><button class="agent-choice" type="button" role="tab" aria-selected="true" data-agent="codex">Codex</button><button class="agent-choice" type="button" role="tab" aria-selected="false" data-agent="claude">Claude Code</button></div><button class="copy" type="button" data-copy aria-label="Copy code" title="Copy code"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></button></div>
+          <pre><code data-code><span class="prompt">export OPENROUTER_API_KEY="your_key" &amp;&amp;</span>
 <span class="string">npx --yes github:BillionsBobby/JevRouter agent start</span> <span class="string">--agent codex --provider openrouter</span></code></pre>
         </div>
-        <p class="agent-note">This starts a persistent Codex session. JevRouter installs the Skill and project instructions in the current project, then routes meaningful model, tool, and subagent choices while the Agent works.</p>
+        <p class="agent-note" data-agent-note>This starts a persistent Codex session. JevRouter installs the Skill and project instructions in the current project, then routes meaningful model, tool, and subagent choices while the Agent works.</p>
       </div>
     </section>
     <section class="routing">
@@ -344,10 +348,31 @@
     drawFlow();
     const button = document.querySelector('[data-copy]');
     const toast = document.querySelector('.toast');
-    const code = 'export OPENROUTER_API_KEY="your_key" && npx --yes github:BillionsBobby/JevRouter agent start --agent codex --provider openrouter';
+    const codeByAgent = {
+      codex: 'export OPENROUTER_API_KEY="your_key" && npx --yes github:BillionsBobby/JevRouter agent start --agent codex --provider openrouter',
+      claude: 'export OPENROUTER_API_KEY="your_key" && npx --yes github:BillionsBobby/JevRouter agent start --agent claude --provider openrouter'
+    };
+    const displayByAgent = {
+      codex: '<span class="prompt">export OPENROUTER_API_KEY="your_key" &amp;&amp;</span>\n<span class="string">npx --yes github:BillionsBobby/JevRouter agent start</span> <span class="string">--agent codex --provider openrouter</span>',
+      claude: '<span class="prompt">export OPENROUTER_API_KEY="your_key" &amp;&amp;</span>\n<span class="string">npx --yes github:BillionsBobby/JevRouter agent start</span> <span class="string">--agent claude --provider openrouter</span>'
+    };
+    const noteByAgent = {
+      codex: 'This starts a persistent Codex session. JevRouter installs the Skill and project instructions in the current project, then routes meaningful model, tool, and subagent choices while the Agent works.',
+      claude: 'This starts a persistent Claude Code session. JevRouter installs the Skill and project instructions in the current project, then routes meaningful model, tool, and subagent choices while the Agent works.'
+    };
+    const codeBlock = document.querySelector('[data-code]');
+    const agentNote = document.querySelector('[data-agent-note]');
+    let selectedAgent = 'codex';
+    function selectAgent(agent) {
+      selectedAgent = agent;
+      codeBlock.innerHTML = displayByAgent[agent];
+      agentNote.textContent = noteByAgent[agent];
+      document.querySelectorAll('[data-agent]').forEach(choice => choice.setAttribute('aria-selected', String(choice.dataset.agent === agent)));
+    }
+    document.querySelectorAll('[data-agent]').forEach(choice => choice.addEventListener('click', () => selectAgent(choice.dataset.agent)));
     button.addEventListener('click', async () => {
       try {
-        await navigator.clipboard.writeText(code);
+        await navigator.clipboard.writeText(codeByAgent[selectedAgent]);
         toast.classList.add('show');
         window.setTimeout(() => toast.classList.remove('show'), 1600);
       } catch {
