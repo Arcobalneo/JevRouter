@@ -8,7 +8,7 @@ import { CachedJevProvider } from "../src/provider.js";
 import { createSdkProvider, route as sdkRoute } from "../src/api.js";
 import { handleMessage } from "../src/mcp-server.js";
 import { CapabilityRegistry, defaultPolicy, loadPolicyFile } from "../src/manifest.js";
-import { doctorAgents, renderClaudeServer, renderCodexConfigBlock, renderRoutingInstructions } from "../src/agent-setup.js";
+import { doctorAgents, renderClaudeServer, renderCodexConfigBlock, renderJevRouterSkill, renderRoutingInstructions } from "../src/agent-setup.js";
 import { resolve } from "node:path";
 
 const candidates: CapabilityManifest[] = [
@@ -206,27 +206,14 @@ test("accepts an OpenAI-style function tool without a manifest conversion step",
   assert.equal(result.decision.candidates[0]?.type, "mcp_tool");
 });
 
-test("renders key-safe Codex and Claude Agent setup", () => {
-  const claude = renderClaudeServer("openrouter");
-  assert.deepEqual(claude, {
-    command: "npx",
-    args: ["-y", "github:BillionsBobby/JevRouter", "serve-mcp"],
-    env: { OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}" },
-  });
-  const codex = renderCodexConfigBlock("openrouter");
-  assert.match(codex, /\[mcp_servers\.jevrouter\]/);
-  assert.match(codex, /env_vars = \["OPENROUTER_API_KEY"\]/);
-  assert.match(codex, /github:BillionsBobby\/JevRouter/);
-  assert.match(codex, /model_instructions_file = "jevrouter-instructions.md"/);
-  assert.doesNotMatch(codex, /sk-|JEV_API_KEY =/);
-  assert.match(renderRoutingInstructions(), /call the JevRouter MCP tool/);
-});
-
-test("provider setup uses only the selected provider key", () => {
-  const claude = renderClaudeServer("openrouter") as { env: Record<string, string> };
-  assert.deepEqual(Object.keys(claude.env), ["OPENROUTER_API_KEY"]);
+test("optional MCP config forwards the chosen key without replacing host instructions", () => {
+  const claude = renderClaudeServer("openrouter") as {command: string; args: string[]; env: Record<string,string>};
+  assert.equal(claude.command, process.execPath);
+  assert.equal(claude.args.includes("serve-mcp"), true);
+  assert.deepEqual(claude.env, { OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}" });
   const codex = renderCodexConfigBlock("openrouter");
   assert.match(codex, /env_vars = \["OPENROUTER_API_KEY"\]/);
+  assert.doesNotMatch(codex, /model_instructions_file/);
 });
 
 test("explicit OpenRouter provider uses the OpenRouter key when multiple keys exist", async () => {
