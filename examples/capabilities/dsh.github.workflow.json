@@ -1,0 +1,13 @@
+{
+  "id": "dsh.github.workflow",
+  "name": "DeepSeek GitHub workflow",
+  "type": "dsh",
+  "version": "0.1.0",
+  "description": "Run a DeepSeek Harness workflow over GitHub issue data.",
+  "permissions": ["github.read"],
+  "risk": { "level": "high", "categories": ["plugin_workflow"] },
+  "availability": { "available": true, "reason": "experimental adapter" },
+  "execution": { "mode": "dsh", "target": "dsh.github.workflow", "dry_run": true },
+  "policy": { "requires_confirmation": true },
+  "metadata": { "source": "example", "compatibility": "developer-preview" }
+}

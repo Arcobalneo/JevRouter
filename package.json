@@ -1,0 +1,43 @@
+{
+  "name": "jevrouter",
+  "version": "0.1.0",
+  "description": "A local, policy-aware router for models, tools, and subagents powered by Jev typed decisions.",
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "bin",
+    "dist",
+    "examples",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "jevrouter": "./bin/jevrouter.mjs"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "tsx": "^4.19.2",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  }
+}

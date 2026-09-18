@@ -1,0 +1,21 @@
+{
+  "id": "github.repo.clone",
+  "name": "Clone GitHub repository",
+  "type": "cli",
+  "version": "1.0.0",
+  "description": "Clone a GitHub repository to a local directory for offline inspection.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "repository": { "type": "string" },
+      "destination": { "type": "string" }
+    },
+    "required": ["repository"]
+  },
+  "permissions": ["filesystem.write"],
+  "risk": { "level": "medium", "categories": ["filesystem_write"] },
+  "availability": { "available": true, "command": "git", "healthcheck": true },
+  "execution": { "mode": "cli", "target": "git clone", "dry_run": true },
+  "policy": { "requires_confirmation": true },
+  "metadata": { "source": "example", "tags": ["github", "git", "filesystem"] }
+}

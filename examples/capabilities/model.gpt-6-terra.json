@@ -1,0 +1,14 @@
+{
+  "id": "model.gpt-6-terra",
+  "name": "GPT-6 Terra",
+  "type": "model",
+  "version": "latest",
+  "description": "Balanced general model for everyday agent planning, coding, and tool use.",
+  "input_schema": { "type": "object", "properties": { "messages": { "type": "array" } }, "required": ["messages"] },
+  "permissions": ["model.invoke"],
+  "risk": { "level": "low", "categories": ["model_inference"] },
+  "availability": { "available": true, "healthcheck": true },
+  "execution": { "mode": "model", "target": "gpt-6-terra", "dry_run": true },
+  "policy": { "requires_confirmation": false },
+  "metadata": { "provider": "openai", "latency_class": "balanced", "cost_class": "medium", "context_tokens": 200000 }
+}

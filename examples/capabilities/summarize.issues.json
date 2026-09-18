@@ -1,0 +1,18 @@
+{
+  "id": "summarize_issues",
+  "name": "Summarize issue results",
+  "type": "skill",
+  "version": "1.0.0",
+  "description": "Summarize a set of issue records and group them by severity.",
+  "input_schema": {
+    "type": "object",
+    "properties": { "issues": { "type": "array" } },
+    "required": ["issues"]
+  },
+  "permissions": [],
+  "risk": { "level": "low", "categories": ["local_transform"] },
+  "availability": { "available": true },
+  "execution": { "mode": "skill", "target": "summarize_issues", "dry_run": true },
+  "policy": { "requires_confirmation": false },
+  "metadata": { "source": "example", "tags": ["summary", "analysis"] }
+}

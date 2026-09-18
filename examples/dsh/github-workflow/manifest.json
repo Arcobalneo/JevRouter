@@ -1,0 +1,7 @@
+{
+  "id": "github.workflow",
+  "name": "GitHub workflow",
+  "version": "0.1.0",
+  "description": "Run a read-only GitHub workflow through a DSH plugin.",
+  "permissions": ["github.read"]
+}

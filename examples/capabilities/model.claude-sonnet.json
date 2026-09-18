@@ -1,0 +1,14 @@
+{
+  "id": "model.claude-sonnet",
+  "name": "Claude Sonnet",
+  "type": "model",
+  "version": "latest",
+  "description": "High-quality model for long context synthesis, careful writing, and complex reasoning.",
+  "input_schema": { "type": "object", "properties": { "messages": { "type": "array" } }, "required": ["messages"] },
+  "permissions": ["model.invoke"],
+  "risk": { "level": "low", "categories": ["model_inference"] },
+  "availability": { "available": true, "healthcheck": true },
+  "execution": { "mode": "model", "target": "claude-sonnet", "dry_run": true },
+  "policy": { "requires_confirmation": false },
+  "metadata": { "provider": "anthropic", "latency_class": "balanced", "cost_class": "high", "context_tokens": 200000 }
+}

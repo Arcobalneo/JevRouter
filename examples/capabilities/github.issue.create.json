@@ -1,0 +1,22 @@
+{
+  "id": "github.issue.create",
+  "name": "Create GitHub issue",
+  "type": "mcp_tool",
+  "version": "1.0.0",
+  "description": "Create a new issue in a GitHub repository.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "repository": { "type": "string" },
+      "title": { "type": "string" },
+      "body": { "type": "string" }
+    },
+    "required": ["repository", "title"]
+  },
+  "permissions": ["github.write"],
+  "risk": { "level": "medium", "categories": ["external_write"] },
+  "availability": { "available": true, "healthcheck": true },
+  "execution": { "mode": "mcp", "target": "github", "dry_run": true },
+  "policy": { "requires_confirmation": true },
+  "metadata": { "source": "example", "tags": ["github", "issue", "write"] }
+}

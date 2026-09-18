@@ -1,0 +1,22 @@
+{
+  "id": "github.issue.search",
+  "name": "Search GitHub issues",
+  "type": "mcp_tool",
+  "version": "1.0.0",
+  "description": "Search issues in a GitHub repository and return matching issues.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "repository": { "type": "string" },
+      "query": { "type": "string" },
+      "days": { "type": "integer", "minimum": 1 }
+    },
+    "required": ["repository", "query"]
+  },
+  "permissions": ["github.read"],
+  "risk": { "level": "low", "categories": ["external_read"] },
+  "availability": { "available": true, "healthcheck": true },
+  "execution": { "mode": "mcp", "target": "github", "dry_run": true },
+  "policy": { "requires_confirmation": false },
+  "metadata": { "source": "example", "tags": ["github", "issue", "search"] }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "subagent.researcher",
+  "name": "Researcher Subagent",
+  "type": "subagent",
+  "version": "0.1.0",
+  "description": "Research-focused subagent that gathers sources, compares evidence, and returns a cited brief.",
+  "input_schema": { "type": "object", "properties": { "task": { "type": "string" } }, "required": ["task"] },
+  "permissions": ["subagent.spawn", "network.read"],
+  "risk": { "level": "medium", "categories": ["subagent_spawn", "network_read"] },
+  "availability": { "available": true, "healthcheck": true },
+  "execution": { "mode": "subagent", "target": "researcher", "dry_run": true },
+  "policy": { "requires_confirmation": true },
+  "metadata": { "model": "model.gpt-6-terra", "max_steps": 12, "budget_tokens": 32000 }
+}
