@@ -1,5 +1,7 @@
 # JevRouter
 
+<p><a href="#jevrouter">English</a> · <a href="#中文介绍">中文</a></p>
+
 JevRouter is a small, local-first router for Agent capabilities. It turns models, Subagents, Skills, MCP Tools, CLIs and DSH plugins into one candidate set, asks Jev one typed Choice question, and applies hard policy checks around the returned decision.
 
 The key contract is simple: Jev owns the decision probabilities; JevRouter owns availability, permissions, risk and confirmation. Router fields live under `router`, while the original `probabilities`, `confidence`, and complete provider response remain intact. Filtered candidates are never re-normalized.
@@ -15,6 +17,15 @@ The core integration is the one-call SDK or CLI. MCP is an optional compatibilit
 ## Benchmark snapshot
 
 We evaluated Jev on 10 Toolathlon tasks by predicting each task's first five ordered tool calls, comparing it with DeepSeek V4.1 Flash. In serial mode, Jev reached **38% position-wise accuracy** versus 24%, achieved a **0.9 mean longest common prefix** versus 0.5, ran about **5.5× faster** (1.58s vs 8.65s per task), and cost about **7× less** ($0.0058 vs $0.0407 for 10 tasks). The experiment measures ordered routing decisions, not end-to-end task completion.
+
+<details>
+<summary id="中文介绍">中文介绍</summary>
+
+JevRouter 是一个本地优先的 Agent 能力路由器，将模型、Subagent、Skill、MCP 工具、CLI 和 DSH 插件统一为候选集，由 Jev 做出类型安全的选择，并由 JevRouter 执行权限、风险、可用性和确认策略。
+
+在 Toolathlon 的 10 个任务中，我们让 Jev 和 DeepSeek V4.1 Flash 预测每个任务前 5 个有序工具调用。Jev 串行模式达到 **38% 的位置命中率**（DeepSeek 为 24%）、**0.9 的平均最长公共前缀**（0.5），速度约快 **5.5 倍**，成本约低 **7 倍**。该实验衡量的是有序路由预测，不是端到端任务完成率。
+
+</details>
 
 ## Quick start
 
