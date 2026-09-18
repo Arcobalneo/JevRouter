@@ -128,6 +128,31 @@ Skill discovery reads `SKILL.md` frontmatter, CLI discovery only calls `<command
 
 When Jev selects a filtered candidate, the router can choose the highest-probability safe candidate, but records that fact in `fallback.reason` and keeps `jev_choice` unchanged. When confidence is below policy, the result is `no_decision` and `selected` is `null`.
 
+## Multi-step plans
+
+`route` answers one question. `plan` answers "which capability should handle step 1..N of this request?" in two modes:
+
+- **Serial** (default): one full routing decision per step. The capabilities selected in earlier steps are appended to the state (`Capabilities already routed in previous steps, in order: ...`), so later steps are conditioned on the plan so far. Works with any candidate count; two-stage routing still applies per step.
+- **Batch**: all step questions (`step1`..`stepN`) are asked in a single provider call over the same candidate set — the cheapest and fastest shape. Requires the candidate count to fit `single_stage_max_candidates` (no per-step two-stage); use serial mode for larger sets.
+
+```bash
+npm run dev -- plan --request "查找 owner/repo 的登录失败 issue 并汇总成报告保存到本地" --steps 3 --mode serial
+npm run dev -- plan --request "search issues then summarize them" --steps 3 --mode batch
+```
+
+```ts
+import { plan } from "jevrouter";
+
+const result = await plan({ request: "search issues then summarize them", candidates: tools }, { steps: 3, mode: "batch" });
+```
+
+The plan contract reuses the routing contract per step:
+
+- `steps[]` is a list of full routing decisions with an added 1-based `step` index: per-step `selected`, `jev_choice`, `status`, candidate probabilities and `router` annotations, and per-step `fallback`. The confidence threshold and filters apply to every step independently.
+- Batch mode stores the single provider envelope in `plan.raw_jev` (per-step `raw_jev` is `null`); serial mode keeps each step's own `raw_jev` (plan-level `raw_jev` is `null`).
+- Serial mode feeds only post-policy `selected` capabilities forward; a `no_decision` step adds nothing to the state.
+- Plans are saved append-only to `.jevrouter/plans/`, alongside decisions.
+
 ## Security posture
 
 - Decision-only is the only mode in this MVP; no CLI, Skill, MCP or DSH action runs implicitly.

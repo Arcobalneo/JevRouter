@@ -83,10 +83,17 @@ export interface JevRawResponse {
   [key: string]: unknown;
 }
 
+export interface JevChoiceQuestion {
+  instructions?: string;
+}
+
 export interface JevRouteRequest {
   state: string;
   candidates: CapabilityManifest[];
   model?: string;
+  /** Optional batch of Choice questions keyed by name (e.g. step1..stepN).
+   * When omitted, providers ask the single default `tool` question. */
+  questions?: Record<string, JevChoiceQuestion>;
 }
 
 export interface JevProvider {
@@ -160,5 +167,26 @@ export interface RouteResult {
   error?: {
     code: string;
     message: string;
+  };
+}
+
+export type PlanMode = "batch" | "serial";
+
+/** One step of a multi-step plan: a full routing decision plus its step index (1-based). */
+export interface RoutePlanStep extends RouteResult {
+  step: number;
+}
+
+export interface RoutePlanResult {
+  plan_id: string;
+  mode: PlanMode;
+  steps: RoutePlanStep[];
+  /** Batch mode: the single provider envelope covering all step questions.
+   * Serial mode: null (each step keeps its own raw_jev). */
+  raw_jev: JevRawResponse | null;
+  provenance: {
+    jev_provider: string;
+    candidate_snapshot_hash: string;
+    policy_hash: string;
   };
 }

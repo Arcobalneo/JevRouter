@@ -2,6 +2,7 @@ node_modules/
 dist/
 .jevrouter/capabilities/
 .jevrouter/decisions/
+.jevrouter/plans/
 .jevrouter/.cache/
 .jevrouter/.cache-tests/
 .jevrouter/policy.json
