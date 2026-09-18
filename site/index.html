@@ -130,8 +130,9 @@
     .install-head {
       height: 36px;
       display: flex;
-      justify-content: space-between;
+      justify-content: center;
       align-items: center;
+      position: relative;
       padding: 0 13px 0 15px;
       border-bottom: 1px solid var(--line);
       color: #888395;
@@ -139,8 +140,8 @@
       letter-spacing: .1em;
       text-transform: uppercase;
     }
-    .agent-picker { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 10px; background: rgba(255, 255, 255, .035); }
-    .agent-choice { border: 0; border-radius: 7px; padding: 7px 11px; color: #8f8b9c; background: transparent; cursor: pointer; font: 11px var(--mono); transition: color .2s ease, background .2s ease, box-shadow .2s ease; }
+    .agent-picker { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 8px; background: rgba(255, 255, 255, .035); }
+    .agent-choice { border: 0; border-radius: 6px; padding: 6px 10px; color: #8f8b9c; background: transparent; cursor: pointer; font: 11px var(--mono); transition: color .2s ease, background .2s ease, box-shadow .2s ease; }
     .agent-choice:hover, .agent-choice:focus-visible { color: var(--ink); }
     .agent-choice[aria-selected="true"] { color: var(--ink); background: rgba(255, 107, 181, .14); box-shadow: 0 0 0 1px rgba(255, 107, 181, .28) inset; }
     .copy {
@@ -156,6 +157,8 @@
       font: 11px var(--mono);
       padding: 0;
       transition: color .2s ease, border-color .2s ease, background .2s ease, transform .2s ease;
+      position: absolute;
+      right: 13px;
     }
     .copy svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
     .copy:hover, .copy:focus-visible { color: var(--pink); border-color: rgba(255, 107, 181, .56); background: rgba(255, 107, 181, .1); transform: translateY(-1px); }
@@ -242,7 +245,7 @@
           <pre><code data-code><span class="prompt">export OPENROUTER_API_KEY="your_key" &amp;&amp;</span>
 <span class="string">npx --yes github:BillionsBobby/JevRouter agent start</span> <span class="string">--agent codex --provider openrouter</span></code></pre>
         </div>
-        <p class="agent-note" data-agent-note>This starts a persistent Codex session. JevRouter installs the Skill and project instructions in the current project, then routes meaningful model, tool, and subagent choices while the Agent works.</p>
+        <p class="agent-note" data-agent-note>Use JevRouter + a Jev API key (including OpenRouter) with any agent to make smarter decisions and save <strong>99.97%*</strong> of your tokens.</p>
       </div>
     </section>
     <section class="routing">
@@ -357,8 +360,8 @@
       claude: '<span class="prompt">export OPENROUTER_API_KEY="your_key" &amp;&amp;</span>\n<span class="string">npx --yes github:BillionsBobby/JevRouter agent start</span> <span class="string">--agent claude --provider openrouter</span>'
     };
     const noteByAgent = {
-      codex: 'This starts a persistent Codex session. JevRouter installs the Skill and project instructions in the current project, then routes meaningful model, tool, and subagent choices while the Agent works.',
-      claude: 'This starts a persistent Claude Code session. JevRouter installs the Skill and project instructions in the current project, then routes meaningful model, tool, and subagent choices while the Agent works.'
+      codex: 'Use JevRouter + a Jev API key (including OpenRouter) with any agent to make smarter decisions and save <strong>99.97%*</strong> of your tokens.',
+      claude: 'Use JevRouter + a Jev API key (including OpenRouter) with any agent to make smarter decisions and save <strong>99.97%*</strong> of your tokens.'
     };
     const codeBlock = document.querySelector('[data-code]');
     const agentNote = document.querySelector('[data-agent-note]');
@@ -366,7 +369,7 @@
     function selectAgent(agent) {
       selectedAgent = agent;
       codeBlock.innerHTML = displayByAgent[agent];
-      agentNote.textContent = noteByAgent[agent];
+      agentNote.innerHTML = noteByAgent[agent];
       document.querySelectorAll('[data-agent]').forEach(choice => choice.setAttribute('aria-selected', String(choice.dataset.agent === agent)));
     }
     document.querySelectorAll('[data-agent]').forEach(choice => choice.addEventListener('click', () => selectAgent(choice.dataset.agent)));
