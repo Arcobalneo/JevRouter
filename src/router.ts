@@ -1,9 +1,11 @@
 import type {
   CapabilityManifest,
+  DecomposeFn,
   JevChoiceAnswer,
   JevRawResponse,
   JevProvider,
   PlanMode,
+  PlanStrategy,
   RouteInput,
   RoutePlanResult,
   RoutePlanStep,
@@ -14,9 +16,11 @@ import type {
 } from "./types.js";
 import { defaultPolicy } from "./manifest.js";
 import { getChoiceAnswer, JevProviderError } from "./provider.js";
+import { beamSelectSequence, describeGroup, extractTargets, groupOf, ruleDecompose } from "./planning.js";
 import { clamp, compactError, requestId, sha256, validateJsonInput } from "./utils.js";
 
 export const MAX_PLAN_STEPS = 10;
+export const DEFAULT_DIVERSITY_PENALTY = 1.0;
 
 export function stepQuestionKey(step: number): string {
   return `step${step}`;
@@ -24,6 +28,12 @@ export function stepQuestionKey(step: number): string {
 
 export function stepQuestionInstructions(step: number): string {
   return `Which single capability should be called at step ${step} when handling this request? Choose only from the supplied options.`;
+}
+
+export function groupQuestionInstructions(step?: number): string {
+  return step === undefined
+    ? "Which capability group should handle this request? Choose only from the supplied options."
+    : `Which capability group should handle step ${step} of this request? Choose only from the supplied options.`;
 }
 
 interface DecidedAnswer {
@@ -64,22 +74,42 @@ export class JevRouter {
     return this.finalize(base, input, ordered, decided);
   }
 
+  /** route() with a custom question instruction (used by serial plan steps). */
+  private async routeStep(input: RouteInput, ordered: CapabilityManifest[], instructions: string): Promise<RouteResult> {
+    const base = this.baseResult(ordered);
+    let decided: DecidedAnswer;
+    try {
+      decided = await this.decideWithStages(renderState(input), ordered, instructions);
+    } catch (error) {
+      return this.errorResult(base, input, error, ordered);
+    }
+    return this.finalize(base, input, ordered, decided, instructions);
+  }
+
   /**
    * Multi-step routing plan. Batch mode asks all step questions in a single
    * provider call (limited to single_stage_max_candidates). Serial mode runs
    * one full routing decision per step and feeds the selected capabilities
    * forward in the state so later steps are conditioned on earlier ones.
+   * Strategy knobs: decompose (sub-goal routing), group_by (hierarchical
+   * routing), beam sequence selection with diversity_penalty (batch),
+   * state_detail (richer serial state).
    */
-  async plan(input: RouteInput, candidates: CapabilityManifest[], options: { steps?: number; mode?: PlanMode } = {}): Promise<RoutePlanResult> {
+  async plan(input: RouteInput, candidates: CapabilityManifest[], options: { steps?: number; mode?: PlanMode } & PlanStrategy = {}): Promise<RoutePlanResult> {
     const steps = options.steps ?? 3;
-    const mode = options.mode ?? "serial";
+    const mode: PlanMode = options.decompose ? "decompose" : options.mode ?? "serial";
     if (!Number.isInteger(steps) || steps < 1 || steps > MAX_PLAN_STEPS) {
       throw new Error(`plan steps must be an integer between 1 and ${MAX_PLAN_STEPS}, got ${steps}`);
     }
+    if (options.group_by && options.mode === "batch") {
+      throw new Error("group_by hierarchical routing is not supported in batch mode; use serial or decompose mode");
+    }
     const ordered = sortCandidates(candidates);
-    const outcome = mode === "batch"
-      ? await this.planBatch(input, ordered, steps)
-      : await this.planSerial(input, ordered, steps);
+    const outcome = options.decompose
+      ? await this.planDecomposed(input, ordered, options)
+      : mode === "batch"
+        ? await this.planBatch(input, ordered, steps, options)
+        : await this.planSerial(input, ordered, steps, options);
     return {
       plan_id: requestId("plan"),
       mode,
@@ -93,7 +123,103 @@ export class JevRouter {
     };
   }
 
-  private async planBatch(input: RouteInput, ordered: CapabilityManifest[], steps: number): Promise<{ steps: RoutePlanStep[]; raw: JevRawResponse | null }> {
+  /** Decompose the request into ordered sub-goals, then route each sub-goal as a single-step decision. */
+  private async planDecomposed(input: RouteInput, ordered: CapabilityManifest[], options: PlanStrategy): Promise<{ steps: RoutePlanStep[]; raw: null }> {
+    const decompose: DecomposeFn = options.decompose === "rule" || options.decompose === undefined
+      ? (request) => ruleDecompose(request)
+      : options.decompose;
+    let goals = (await decompose(input.request)).map((goal) => goal.trim()).filter(Boolean);
+    if (goals.length > MAX_PLAN_STEPS) goals = [...goals.slice(0, MAX_PLAN_STEPS - 1), goals.slice(MAX_PLAN_STEPS - 1).join(" ")];
+    const completed: string[] = [];
+    const stepResults: RoutePlanStep[] = [];
+    for (const [index, goal] of goals.entries()) {
+      const step = index + 1;
+      let request = goal;
+      if (options.thread_context) {
+        request = `${input.request}\n\nSub-goal ${step} of ${goals.length}: ${goal}`;
+        if (completed.length) request += `\n\nCapabilities already routed in previous steps, in order: ${completed.join(", ")}.`;
+      }
+      const stepInput = { ...input, request };
+      const result = options.group_by
+        ? await this.routeHierarchical(stepInput, ordered, options.group_by)
+        : await this.route(stepInput, ordered);
+      const reranked = this.rerankWithDiversity(result, completed, options.diversity_penalty);
+      stepResults.push({ step, ...reranked });
+      if (reranked.decision.selected) completed.push(reranked.decision.selected);
+    }
+    return { steps: stepResults, raw: null };
+  }
+
+  /**
+   * Per-step diversity re-rank: within one routing decision, re-score candidates as
+   * log(p) - lambda * (prior occurrences in the plan) and, when a different
+   * unfiltered candidate wins, record the override in fallback (Jev keeps its
+   * probabilities; the router owns the sequence policy).
+   */
+  private rerankWithDiversity(result: RouteResult, completed: string[], lambda: number | undefined): RouteResult {
+    if (!lambda || lambda <= 0 || result.decision.selected === null) return result;
+    let best: { id: string; score: number } | null = null;
+    for (const candidate of result.decision.candidates) {
+      if (candidate.jev_probability === null || candidate.router.filtered) continue;
+      const repeats = completed.filter((tool) => tool === candidate.id).length;
+      const score = Math.log(Math.max(candidate.jev_probability, 1e-9)) - lambda * repeats;
+      if (!best || score > best.score || (score === best.score && candidate.id < best.id)) best = { id: candidate.id, score };
+    }
+    if (!best || best.id === result.decision.selected) return result;
+    const winner = result.decision.candidates.find((candidate) => candidate.id === best.id);
+    if (!winner) return result;
+    result.decision.selected = best.id;
+    result.status = winner.router.requires_confirmation ? "needs_confirmation" : "selected";
+    result.fallback = { type: "manual_review", reason: `diversity re-rank selected ${best.id} over ${result.decision.jev_choice} (diversity_penalty ${lambda})` };
+    return result;
+  }
+
+  /** Hierarchical routing: coarse Choice over candidate groups, then a Choice within the winning group. */
+  private async routeHierarchical(input: RouteInput, ordered: CapabilityManifest[], groupBy: "server" | "type", step?: number): Promise<RouteResult> {
+    const base = this.baseResult(ordered);
+    if (ordered.length === 0) return this.errorResult(base, input, new JevProviderError("jev_malformed_response", "No capability candidates were supplied"), ordered);
+    const state = renderState(input);
+    const groups = new Map<string, CapabilityManifest[]>();
+    for (const candidate of ordered) {
+      const group = groupOf(candidate, groupBy);
+      groups.set(group, [...(groups.get(group) ?? []), candidate]);
+    }
+    try {
+      const groupCandidates: CapabilityManifest[] = [...groups.entries()].map(([group, members]) => ({
+        id: group,
+        name: group,
+        type: "mcp_tool" as const,
+        description: describeGroup(group, members),
+      }));
+      const coarseRaw = await this.provider.decide({
+        state,
+        candidates: groupCandidates,
+        questions: { tool: { instructions: groupQuestionInstructions(step) } },
+      });
+      const coarseAnswer = getChoiceAnswer(coarseRaw);
+      const members = groups.get(coarseAnswer.choice) ?? ordered;
+      const finalRaw = await this.provider.decide({
+        state,
+        candidates: members,
+        ...(step !== undefined ? { questions: { tool: { instructions: stepQuestionInstructions(step) } } } : {}),
+      });
+      const finalAnswer = getChoiceAnswer(finalRaw);
+      const memberIds = new Set(members.map((member) => member.id));
+      const decided: DecidedAnswer = {
+        answer: finalAnswer,
+        probabilityById: new Map(ordered.map((candidate) => [candidate.id, memberIds.has(candidate.id) ? (finalAnswer.probabilities[candidate.id] ?? 0) : 0])),
+        confidenceById: new Map(ordered.map((candidate) => [candidate.id, memberIds.has(candidate.id) ? finalAnswer.confidence : coarseAnswer.confidence])),
+        stageById: new Map(ordered.map((candidate) => [candidate.id, memberIds.has(candidate.id) ? "final" as const : "coarse" as const])),
+        raw_jev: finalRaw,
+        raw_jev_stages: [{ stage: "coarse", response: coarseRaw }, { stage: "final", response: finalRaw }],
+      };
+      return this.finalize(base, input, ordered, decided);
+    } catch (error) {
+      return this.errorResult(base, input, error, ordered);
+    }
+  }
+
+  private async planBatch(input: RouteInput, ordered: CapabilityManifest[], steps: number, options: PlanStrategy = {}): Promise<{ steps: RoutePlanStep[]; raw: JevRawResponse | null }> {
     const maxSingleStage = Math.max(1, this.policy.single_stage_max_candidates ?? defaultPolicy.single_stage_max_candidates ?? 32);
     if (ordered.length > maxSingleStage) {
       throw new Error(`batch plan mode supports at most ${maxSingleStage} candidates (single_stage_max_candidates), got ${ordered.length}; use serial mode for larger candidate sets`);
@@ -111,12 +237,30 @@ export class JevRouter {
       }));
       return { steps: stepsOnError, raw: null };
     }
+    // Beam sequence selection: pick a coherent sequence from the per-step
+    // distributions with a repetition penalty, instead of per-step argmax.
+    let beamChoiceByStep: string[] | null = null;
+    if (options.sequence === "beam") {
+      const answers: JevChoiceAnswer[] = [];
+      for (let step = 1; step <= steps; step++) answers.push(getChoiceAnswer(raw, stepQuestionKey(step)));
+      beamChoiceByStep = beamSelectSequence(answers, ordered.map((candidate) => candidate.id), options.diversity_penalty ?? DEFAULT_DIVERSITY_PENALTY);
+    }
     const stepResults: RoutePlanStep[] = [];
     for (let step = 1; step <= steps; step++) {
       const base = this.baseResult(ordered);
       try {
         const answer = getChoiceAnswer(raw, stepQuestionKey(step));
-        stepResults.push({ step, ...this.finalize(base, input, ordered, singleStageDecision(answer, ordered, null), stepQuestionInstructions(step)) });
+        const result = this.finalize(base, input, ordered, singleStageDecision(answer, ordered, null), stepQuestionInstructions(step));
+        const beamChoice = beamChoiceByStep?.[step - 1];
+        if (beamChoice && beamChoice !== result.decision.jev_choice) {
+          const beamCandidate = result.decision.candidates.find((candidate) => candidate.id === beamChoice);
+          if (beamCandidate && !beamCandidate.router.filtered && result.decision.selected !== null) {
+            result.decision.selected = beamChoice;
+            result.status = beamCandidate.router.requires_confirmation ? "needs_confirmation" : "selected";
+            result.fallback = { type: "manual_review", reason: `sequence beam selected ${beamChoice} over jev_choice ${result.decision.jev_choice} (diversity_penalty applied)` };
+          }
+        }
+        stepResults.push({ step, ...result });
       } catch (error) {
         stepResults.push({ step, ...this.errorResult(base, input, error, ordered) });
       }
@@ -124,16 +268,26 @@ export class JevRouter {
     return { steps: stepResults, raw };
   }
 
-  private async planSerial(input: RouteInput, ordered: CapabilityManifest[], steps: number): Promise<{ steps: RoutePlanStep[]; raw: null }> {
+  private async planSerial(input: RouteInput, ordered: CapabilityManifest[], steps: number, options: PlanStrategy = {}): Promise<{ steps: RoutePlanStep[]; raw: null }> {
     const completed: string[] = [];
     const stepResults: RoutePlanStep[] = [];
+    const targetsLine = options.state_detail === "targets"
+      ? `\n\nTargets mentioned in the request: ${extractTargets(input.request).join(", ") || "(none)"}.`
+      : "";
+    const hintLine = options.plan_hint?.length
+      ? `\n\nPlan sketch:\n${options.plan_hint.map((goal, index) => `${index + 1}. ${goal}`).join("\n")}`
+      : "";
     for (let step = 1; step <= steps; step++) {
       const request = completed.length
-        ? `${input.request}\n\nCapabilities already routed in previous steps, in order: ${completed.join(", ")}.`
-        : input.request;
-      const result = await this.route({ ...input, request }, ordered);
-      stepResults.push({ step, ...result });
-      if (result.decision.selected) completed.push(result.decision.selected);
+        ? `${input.request}${targetsLine}${hintLine}\n\nCapabilities already routed in previous steps, in order: ${completed.join(", ")}.`
+        : `${input.request}${targetsLine}${hintLine}`;
+      const stepInput = { ...input, request };
+      const result = options.group_by
+        ? await this.routeHierarchical(stepInput, ordered, options.group_by, step)
+        : await this.routeStep(stepInput, ordered, stepQuestionInstructions(step));
+      const reranked = this.rerankWithDiversity(result, completed, options.diversity_penalty);
+      stepResults.push({ step, ...reranked });
+      if (reranked.decision.selected) completed.push(reranked.decision.selected);
     }
     return { steps: stepResults, raw: null };
   }
@@ -164,8 +318,9 @@ export class JevRouter {
     };
   }
 
-  private async decideWithStages(state: string, ordered: CapabilityManifest[]): Promise<DecidedAnswer> {
-    const coarseRaw = await this.provider.decide({ state, candidates: ordered });
+  private async decideWithStages(state: string, ordered: CapabilityManifest[], instructions?: string): Promise<DecidedAnswer> {
+    const questions = instructions === undefined ? undefined : { tool: { instructions } };
+    const coarseRaw = await this.provider.decide({ state, candidates: ordered, ...(questions ? { questions } : {}) });
     const coarseAnswer = getChoiceAnswer(coarseRaw);
     const maxSingleStage = Math.max(1, this.policy.single_stage_max_candidates ?? defaultPolicy.single_stage_max_candidates ?? 32);
     if (ordered.length <= maxSingleStage) {
@@ -180,7 +335,7 @@ export class JevRouter {
       .slice(0, topK);
     const raw_jev_stages: NonNullable<RouteResult["raw_jev_stages"]> = [{ stage: "coarse", response: coarseRaw }];
     const coarse = singleStageDecision(coarseAnswer, ordered, coarseRaw);
-    const finalRaw = await this.provider.decide({ state, candidates: coarseTop });
+    const finalRaw = await this.provider.decide({ state, candidates: coarseTop, ...(questions ? { questions } : {}) });
     raw_jev_stages.push({ stage: "final", response: finalRaw });
     const finalAnswer = getChoiceAnswer(finalRaw);
     const final_ = singleStageDecision(finalAnswer, coarseTop, finalRaw);

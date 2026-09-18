@@ -90,17 +90,32 @@ async function route(args: string[]): Promise<void> {
 
 async function plan(args: string[]): Promise<void> {
   const request = option(args, "--request");
-  if (!request) throw new Error("usage: jevrouter plan --request \"...\" [--steps 5] [--mode batch|serial] [--provider demo|typesafe|openrouter]");
+  if (!request) throw new Error("usage: jevrouter plan --request \"...\" [--steps 5] [--mode batch|serial] [--sequence argmax|beam] [--diversity-penalty 1.0] [--group-by server|type] [--decompose rule] [--state-detail names|targets] [--provider demo|typesafe|openrouter]");
   const steps = option(args, "--steps") === undefined ? undefined : Number(option(args, "--steps"));
   const mode = option(args, "--mode");
   if (mode !== undefined && mode !== "batch" && mode !== "serial") throw new Error("--mode must be batch or serial");
   if (steps !== undefined && (!Number.isInteger(steps) || steps < 1)) throw new Error("--steps must be a positive integer");
+  const sequence = option(args, "--sequence");
+  if (sequence !== undefined && sequence !== "argmax" && sequence !== "beam") throw new Error("--sequence must be argmax or beam");
+  const diversityPenalty = option(args, "--diversity-penalty") === undefined ? undefined : Number(option(args, "--diversity-penalty"));
+  if (diversityPenalty !== undefined && Number.isNaN(diversityPenalty)) throw new Error("--diversity-penalty must be a number");
+  const groupBy = option(args, "--group-by");
+  if (groupBy !== undefined && groupBy !== "server" && groupBy !== "type") throw new Error("--group-by must be server or type");
+  const decompose = option(args, "--decompose");
+  if (decompose !== undefined && decompose !== "rule") throw new Error("--decompose only supports the built-in rule splitter from the CLI");
+  const stateDetail = option(args, "--state-detail");
+  if (stateDetail !== undefined && stateDetail !== "names" && stateDetail !== "targets") throw new Error("--state-detail must be names or targets");
   const policy = await loadPolicyFile(option(args, "--policy") ?? join(root, ".jevrouter", "policy.json"));
   const provider = createProvider(option(args, "--provider"));
   const candidates = await registry.list();
   const actorPermissions = option(args, "--actor-permissions")?.split(",").map((value) => value.trim()).filter(Boolean);
   const actor = option(args, "--actor");
-  const result = await new JevRouter(provider, policy).plan({ request, actor, actor_permissions: actorPermissions }, candidates, { steps, mode });
+  const result = await new JevRouter(provider, policy).plan({ request, actor, actor_permissions: actorPermissions }, candidates, {
+    steps, mode,
+    sequence, diversity_penalty: diversityPenalty,
+    group_by: groupBy, decompose: decompose as "rule" | undefined,
+    state_detail: stateDetail,
+  });
   const outputPath = await savePlan(result);
   console.log(JSON.stringify({ ...result, saved_to: outputPath }, null, 2));
 }

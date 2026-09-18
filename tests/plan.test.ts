@@ -114,3 +114,83 @@ test("SDK plan works with the labelled demo provider", async () => {
   assert.ok(plan.steps[0].decision.selected);
   assert.equal(plan.provenance.jev_provider, "jevrouter-demo");
 });
+
+test("batch beam sequence selection overrides argmax while preserving jev_choice", async () => {
+  const provider = new RecordingProvider(() => ({
+    answers: {
+      step1: choiceAnswer("a.read", { "a.read": 0.6, "b.write": 0.4, "c.search": 0.0 }, 0.9),
+      step2: choiceAnswer("a.read", { "a.read": 0.55, "b.write": 0.45, "c.search": 0.0 }, 0.9),
+    },
+  }));
+  const plan = await new JevRouter(provider, { min_confidence: 0 }).plan(
+    { request: "read then write" }, candidates,
+    { steps: 2, mode: "batch", sequence: "beam", diversity_penalty: 1.0 },
+  );
+  assert.equal(provider.calls.length, 1);
+  assert.equal(plan.steps[0].decision.selected, "a.read");
+  assert.equal(plan.steps[1].decision.selected, "b.write");
+  assert.equal(plan.steps[1].decision.jev_choice, "a.read");
+  assert.match(plan.steps[1].fallback.reason ?? "", /sequence beam/);
+});
+
+test("serial plan diversity re-rank picks the un-repeated runner-up", async () => {
+  const provider = new RecordingProvider((_request, index) => {
+    const responses = [
+      { answers: { tool: choiceAnswer("a.read", { "a.read": 0.6, "b.write": 0.4, "c.search": 0 }, 0.9) } },
+      { answers: { tool: choiceAnswer("a.read", { "a.read": 0.55, "b.write": 0.45, "c.search": 0 }, 0.9) } },
+    ];
+    return responses[index];
+  });
+  const plan = await new JevRouter(provider, { min_confidence: 0 }).plan(
+    { request: "read then write" }, candidates,
+    { steps: 2, mode: "serial", diversity_penalty: 1.0 },
+  );
+  assert.equal(plan.steps[0].decision.selected, "a.read");
+  assert.equal(plan.steps[1].decision.selected, "b.write");
+  assert.match(plan.steps[1].fallback.reason ?? "", /diversity re-rank/);
+});
+
+test("decompose routes each injected sub-goal and threads plan context", async () => {
+  const provider = new RecordingProvider(() => ({
+    answers: { tool: choiceAnswer("a.read", { "a.read": 0.9, "b.write": 0.1, "c.search": 0 }, 0.9) },
+  }));
+  const plan = await new JevRouter(provider, { min_confidence: 0 }).plan(
+    { request: "original multi-step request" }, candidates,
+    { decompose: () => ["first sub-goal", "second sub-goal"], thread_context: true },
+  );
+  assert.equal(plan.mode, "decompose");
+  assert.equal(plan.steps.length, 2);
+  assert.match(provider.calls[0].state, /Sub-goal 1 of 2: first sub-goal/);
+  assert.match(provider.calls[0].state, /original multi-step request/);
+  assert.match(provider.calls[1].state, /Sub-goal 2 of 2: second sub-goal/);
+  assert.match(provider.calls[1].state, /already routed in previous steps, in order: a\.read/);
+});
+
+test("hierarchical routing picks a group first, then a member", async () => {
+  const provider = new RecordingProvider((_request, index) => {
+    if (index === 0) {
+      return { answers: { tool: choiceAnswer("mcp_tool", { mcp_tool: 0.9 }, 0.9) } };
+    }
+    return { answers: { tool: choiceAnswer("b.write", { "a.read": 0.3, "b.write": 0.6, "c.search": 0.1 }, 0.9) } };
+  });
+  const plan = await new JevRouter(provider, { min_confidence: 0 }).plan(
+    { request: "write something" }, candidates, { steps: 1, mode: "serial", group_by: "server" },
+  );
+  assert.equal(provider.calls.length, 2);
+  assert.ok(provider.calls[0].candidates.every((candidate) => candidate.id === "mcp_tool"));
+  assert.equal(plan.steps[0].decision.selected, "b.write");
+  assert.equal(plan.steps[0].decision.candidates.find((candidate) => candidate.id === "b.write")?.jev_stage, "final");
+  assert.equal(plan.steps[0].raw_jev_stages?.length, 2);
+});
+
+test("serial plan includes the plan sketch in every step state", async () => {
+  const provider = new RecordingProvider(() => ({
+    answers: { tool: choiceAnswer("a.read", { "a.read": 0.9, "b.write": 0.1, "c.search": 0 }, 0.9) },
+  }));
+  await new JevRouter(provider, { min_confidence: 0 }).plan(
+    { request: "do things" }, candidates,
+    { steps: 2, mode: "serial", plan_hint: ["do first thing", "do second thing"] },
+  );
+  assert.match(provider.calls[0].state, /Plan sketch:\n1\. do first thing\n2\. do second thing/);
+  assert.match(provider.calls[1].state, /Plan sketch/);
+});

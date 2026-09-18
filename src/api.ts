@@ -1,7 +1,7 @@
 import { CapabilityRegistry, defaultPolicy, normalizeCapability } from "./manifest.js";
 import { CachedJevProvider, DemoProvider, HttpJevProvider, OpenRouterJevProvider } from "./provider.js";
 import { JevRouter } from "./router.js";
-import type { CapabilityInput, CapabilityManifest, JevProvider, PlanMode, RouteInput, RoutePlanResult, RouteResult, RouterPolicy } from "./types.js";
+import type { CapabilityInput, CapabilityManifest, JevProvider, PlanMode, PlanStrategy, RouteInput, RoutePlanResult, RouteResult, RouterPolicy } from "./types.js";
 
 export interface RouteOptions {
   candidates?: CapabilityInput[];
@@ -14,7 +14,7 @@ export interface RouteOptions {
   cache?: boolean;
 }
 
-export interface PlanOptions extends RouteOptions {
+export interface PlanOptions extends RouteOptions, PlanStrategy {
   steps?: number;
   mode?: PlanMode;
 }
@@ -40,7 +40,15 @@ export async function plan(input: RouteInput, options: PlanOptions = {}): Promis
   const rawCandidates = options.candidates ?? input.candidates ?? await new CapabilityRegistry(options.capabilityDir ?? ".jevrouter/capabilities").list();
   const candidates = rawCandidates.map((candidate, index) => normalizeCapability(candidate, `candidates[${index}]`));
   const provider = createProvider(options);
-  return new JevRouter(provider, { ...defaultPolicy, ...(options.policy ?? {}) }).plan(input, candidates, { steps: options.steps, mode: options.mode });
+  return new JevRouter(provider, { ...defaultPolicy, ...(options.policy ?? {}) }).plan(input, candidates, {
+    steps: options.steps,
+    mode: options.mode,
+    sequence: options.sequence,
+    diversity_penalty: options.diversity_penalty,
+    group_by: options.group_by,
+    decompose: options.decompose,
+    state_detail: options.state_detail,
+  });
 }
 
 export function createSdkProvider(options: RouteOptions = {}): JevProvider {
