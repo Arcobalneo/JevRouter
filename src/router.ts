@@ -143,7 +143,7 @@ export class JevRouter {
       const result = options.group_by
         ? await this.routeHierarchical(stepInput, ordered, options.group_by)
         : await this.route(stepInput, ordered);
-      const reranked = this.rerankWithDiversity(result, completed, options.diversity_penalty);
+      const reranked = this.rerankWithDiversity(result, completed, options.diversity_penalty, ordered, input.input);
       stepResults.push({ step, ...reranked });
       if (reranked.decision.selected) completed.push(reranked.decision.selected);
     }
@@ -156,7 +156,7 @@ export class JevRouter {
    * unfiltered candidate wins, record the override in fallback (Jev keeps its
    * probabilities; the router owns the sequence policy).
    */
-  private rerankWithDiversity(result: RouteResult, completed: string[], lambda: number | undefined): RouteResult {
+  private rerankWithDiversity(result: RouteResult, completed: string[], lambda: number | undefined, ordered: CapabilityManifest[], input: unknown): RouteResult {
     if (!lambda || lambda <= 0 || result.decision.selected === null) return result;
     let best: { id: string; score: number } | null = null;
     for (const candidate of result.decision.candidates) {
@@ -168,6 +168,8 @@ export class JevRouter {
     if (!best || best.id === result.decision.selected) return result;
     const winner = result.decision.candidates.find((candidate) => candidate.id === best.id);
     if (!winner) return result;
+    const winnerManifest = ordered.find((candidate) => candidate.id === best.id);
+    if (input !== undefined && validateJsonInput(input, winnerManifest?.input_schema).length > 0) return result;
     result.decision.selected = best.id;
     result.status = winner.router.requires_confirmation ? "needs_confirmation" : "selected";
     result.fallback = { type: "manual_review", reason: `diversity re-rank selected ${best.id} over ${result.decision.jev_choice} (diversity_penalty ${lambda})` };
@@ -254,7 +256,11 @@ export class JevRouter {
         const beamChoice = beamChoiceByStep?.[step - 1];
         if (beamChoice && beamChoice !== result.decision.jev_choice) {
           const beamCandidate = result.decision.candidates.find((candidate) => candidate.id === beamChoice);
-          if (beamCandidate && !beamCandidate.router.filtered && result.decision.selected !== null) {
+          const beamManifest = ordered.find((candidate) => candidate.id === beamChoice);
+          const beamInputErrors = beamManifest && input.input !== undefined
+            ? validateJsonInput(input.input, beamManifest.input_schema)
+            : [];
+          if (beamCandidate && !beamCandidate.router.filtered && result.decision.selected !== null && beamInputErrors.length === 0) {
             result.decision.selected = beamChoice;
             result.status = beamCandidate.router.requires_confirmation ? "needs_confirmation" : "selected";
             result.fallback = { type: "manual_review", reason: `sequence beam selected ${beamChoice} over jev_choice ${result.decision.jev_choice} (diversity_penalty applied)` };
@@ -285,7 +291,7 @@ export class JevRouter {
       const result = options.group_by
         ? await this.routeHierarchical(stepInput, ordered, options.group_by, step)
         : await this.routeStep(stepInput, ordered, stepQuestionInstructions(step));
-      const reranked = this.rerankWithDiversity(result, completed, options.diversity_penalty);
+      const reranked = this.rerankWithDiversity(result, completed, options.diversity_penalty, ordered, input.input);
       stepResults.push({ step, ...reranked });
       if (reranked.decision.selected) completed.push(reranked.decision.selected);
     }
