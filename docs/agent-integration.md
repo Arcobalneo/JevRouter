@@ -2,19 +2,15 @@
 
 ## Start in one command
 
-Run in the project in which the Agent will work:
+Run in the project in which the Agent will work. This command keeps the host Agent running and leaves the Skill and project instructions installed in the project:
 
 ```bash
-JEV_API_KEY="your-typesafe-key" npx --yes github:BillionsBobby/JevRouter agent start --agent codex
+export OPENROUTER_API_KEY="your-key" && npx --yes github:BillionsBobby/JevRouter agent start --agent codex --provider openrouter
 ```
 
-For OpenRouter and Claude Code:
+For Claude Code, change `--agent codex` to `--agent claude`. For a direct Jev API key, use `export JEV_API_KEY="your-typesafe-key"` and omit `--provider openrouter`.
 
-```bash
-OPENROUTER_API_KEY="your-key" npx --yes github:BillionsBobby/JevRouter agent start --agent claude --provider openrouter
-```
-
-The command performs a small live Jev connection check, installs a Skill and project instructions, and launches the installed host CLI with the same environment. Each check sends a labelled two-option connectivity request and may incur an API charge. It does not route a user task or fabricate a capability catalog. The Agent's own model account is separate from the Jev key.
+The command performs a small live Jev connection check, installs a Skill and project instructions, and launches the installed host CLI with the same environment. The process stays attached until the host exits; the generated files remain for later sessions. Each check sends a labelled two-option connectivity request and may incur an API charge. It does not route a user task or fabricate a capability catalog. The Agent's own model account is separate from the Jev key. Add the export to a shell profile or secret manager if the key should survive new terminals.
 
 `agent setup` installs without launching. Its default target is both Codex and Claude; `--agent codex|claude` restricts it. `--skip-check` is an explicit offline install and requires later validation. `export KEY=...; ... setup` retains the key for future terminal commands. Desktop hosts must also be launched with that environment.
 

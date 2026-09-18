@@ -235,10 +235,10 @@
         <h1><span class="brand">JevRouter</span> Make every agent decision <em>faster.</em></h1>
         <div class="install" aria-label="Install and use JevRouter">
           <div class="install-head"><span>AGENT QUICK START</span><button class="copy" type="button" data-copy aria-label="Copy code" title="Copy code"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg></button></div>
-          <pre><code><span class="prompt">OPENROUTER_API_KEY=your_openrouter_api_key</span> <span class="string">npx -y github:BillionsBobby/JevRouter route --provider openrouter --request</span> \
-  <span class="string">"route this task to the best capability"</span></code></pre>
+          <pre><code><span class="prompt">export OPENROUTER_API_KEY="your_key" &amp;&amp;</span>
+<span class="string">npx --yes github:BillionsBobby/JevRouter agent start</span> <span class="string">--agent codex --provider openrouter</span></code></pre>
         </div>
-        <p class="agent-note">Use JevRouter + a Jev API key (including OpenRouter) with any agent to make smarter decisions and save <strong>99.97%*</strong> of your tokens.</p>
+        <p class="agent-note">This starts a persistent Codex session. JevRouter installs the Skill and project instructions in the current project, then routes meaningful model, tool, and subagent choices while the Agent works.</p>
       </div>
     </section>
     <section class="routing">
@@ -344,7 +344,7 @@
     drawFlow();
     const button = document.querySelector('[data-copy]');
     const toast = document.querySelector('.toast');
-    const code = 'OPENROUTER_API_KEY=your_openrouter_api_key npx -y github:BillionsBobby/JevRouter route --provider openrouter --request "route this task to the best capability"';
+    const code = 'export OPENROUTER_API_KEY="your_key" && npx --yes github:BillionsBobby/JevRouter agent start --agent codex --provider openrouter';
     button.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(code);
