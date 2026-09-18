@@ -33,13 +33,13 @@ JevRouter 是一个本地优先的 Agent 能力路由器，将模型、Subagent�
 
 ## Quick start: Skill + project instructions + CLI
 
-Node.js 20+ is required. In the project you want the Agent to work on, this single command checks Jev, installs the Skill, and launches Codex with the same key:
+Node.js 20+ is required. In the project you want the Agent to work on, copy this command. It checks Jev, installs the Skill and project instructions, then keeps Codex running with the same key:
 
 ```bash
-JEV_API_KEY="your-typesafe-key" npx --yes github:BillionsBobby/JevRouter agent start --agent codex
+export OPENROUTER_API_KEY="your-key" && npx --yes github:BillionsBobby/JevRouter agent start --agent codex --provider openrouter
 ```
 
-For Claude Code use `--agent claude`. For OpenRouter replace `JEV_API_KEY` with `OPENROUTER_API_KEY` and add `--provider openrouter`. The host CLI must already be installed. Its login/model credentials are separate from the Jev decision key.
+For Claude Code use `--agent claude`. For a direct Jev API key, use `export JEV_API_KEY="your-typesafe-key"` and omit `--provider openrouter`. The host CLI must already be installed. Its login/model credentials are separate from the Jev decision key.
 
 To install without launching a host (including desktop users):
 
@@ -49,7 +49,7 @@ export OPENROUTER_API_KEY="your-key"; npx --yes github:BillionsBobby/JevRouter a
 
 Default setup installs **Skills and project instructions only**. Codex reads `AGENTS.md` (or the active `AGENTS.override.md`) and `.agents/skills/jevrouter/SKILL.md`; Claude Code reads `CLAUDE.md` and `.claude/skills/jevrouter/SKILL.md`. It adds a small CLI helper, using the installed package instead of downloading a package for each decision. Existing instructions are backed up and appended to; conflicting integration files are preserved with a proposed replacement. No key is written to disk. No base model instructions are replaced.
 
-Open a new Agent session in this project, explicitly invoke **`$jevrouter`** in Codex or **`/jevrouter`** in Claude Code, and give your real task. Project rules also ask the Agent to route meaningful capability choices automatically. A running session may need to reload skills; GUI apps must inherit the key environment. An inline `KEY=... setup` assignment ends with setup; `agent start` keeps it in the launched host. Skill instructions guide the host; they cannot intercept every built-in tool.
+The `agent start` command stays attached to the launched Agent until that Agent exits; it is the persistent integration entrypoint, while `route` remains a one-shot API/CLI call. The generated Skill and project instructions remain in the project for later sessions. Keep the key exported in the Agent environment; add the export to your shell profile or secret manager if it should survive new terminals. Explicitly invoke **`$jevrouter`** in Codex or **`/jevrouter`** in Claude Code for the first task. Project rules also ask the Agent to route meaningful capability choices automatically. Skill instructions guide the host; they cannot intercept every built-in tool.
 
 The Agent gathers its real available candidates and runs Jev before choosing a next step. Expect visible `JevRouter START` / `END`, JSON status, a decision ID and an append-only receipt. Setup's `CHECK passed` proves only connectivity, not that a later task was routed.
 
