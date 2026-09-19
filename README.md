@@ -1,85 +1,139 @@
+<div align="center">
+
+<img src="docs/assets/jev-api-router-comparison.png" alt="JevRouter — Jev supplies the decision model, JevRouter supplies the agent integration" width="720" />
+
 # JevRouter
 
-<p><a href="#jevrouter">English</a> · <a href="#中文介绍">中文</a></p>
+**Faster agent decisions.** Models, subagents, skills, MCP tools, CLIs and plugins become one candidate set — Jev answers one typed Choice question, JevRouter enforces availability, permissions, risk and confirmation around it.
 
-JevRouter is a small, local-first router for Agent capabilities. It turns models, Subagents, Skills, MCP Tools, CLIs and DSH plugins into one candidate set, asks Jev one typed Choice question, and applies hard policy checks around the returned decision.
+[![CI](https://github.com/BillionsBobby/JevRouter/actions/workflows/ci.yml/badge.svg)](https://github.com/BillionsBobby/JevRouter/actions/workflows/ci.yml)
+[![Website](https://img.shields.io/badge/website-jevrouter.co-blue)](https://www.jevrouter.co/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Node.js ≥ 20](https://img.shields.io/badge/node-%E2%89%A5%2020-339933?logo=node.js&logoColor=white)](package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white)](tsconfig.json)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-The key contract is simple: Jev owns the decision probabilities; JevRouter owns availability, permissions, risk and confirmation. Router fields live under `router`, while the original `probabilities`, `confidence`, and complete provider response remain intact. Filtered candidates are never re-normalized.
+[Quickstart](#quickstart) · [Benchmark](#benchmark) · [Cookbook](docs/cookbook/README.md) · [Documentation](#documentation) · [中文](#中文介绍)
 
-Small candidate sets use one Jev Choice call. When `single_stage_max_candidates` is exceeded, JevRouter first keeps the coarse Top-K candidates, then asks Jev for a final Choice over that reduced set. Both raw responses are returned in `raw_jev_stages`; coarse probabilities remain attached to candidates that were not sent to the final stage.
+</div>
 
-## Why this shape
+---
 
-TypeSafe documents Jev as a System One model: structured state in, typed decisions with probability distributions and confidence out. That makes it useful as a fast decision layer in front of tools, while a normal reasoning model can remain the execution or fallback layer. JevRouter keeps that boundary explicit and defaults to decision-only mode.
+## Why JevRouter
 
-The core integration is the one-call SDK or CLI. MCP is an optional compatibility adapter for Agents that already load tools through MCP; it exposes one `jev_route` tool and does not execute the selected capability implicitly.
+Agents waste reasoning tokens on a question a fast decision model answers better: **which capability should handle this next?** JevRouter puts [Jev](https://www.jevrouter.co/) — a System One model that turns structured state into typed decisions with probability distributions — in front of your tools, while your reasoning model stays the execution and fallback layer.
 
-![Jev API and JevRouter: decision model and agent integration](docs/assets/jev-api-router-comparison.png)
+The key contract is simple: **Jev owns the decision probabilities; JevRouter owns availability, permissions, risk and confirmation.** Router fields live under `router`, while the original `probabilities`, `confidence`, and complete provider response remain intact. Filtered candidates are never re-normalized.
 
-**Jev supplies the decision model; JevRouter supplies capability discovery, routing policies, and agent integration.** The diagram illustrates the broader orchestration vision. In the current implementation, JevRouter returns routing decisions and plans; the host agent executes the selected capabilities and produces the final result.
+- **Decision-only by default** — nothing executes implicitly; medium/high/critical capabilities require confirmation.
+- **One call or a plan** — `route` answers one question; `plan` answers "which capability handles step 1..N" with serial, batch, and decomposed strategies.
+- **Every surface** — models, subagents, Skills, MCP tools, CLIs, DSH plugins share one routing contract.
+- **Receipts by default** — append-only decision/plan files with provenance hashes; what was decided, why, and at what confidence is always auditable.
 
-## Benchmark snapshot
+## Benchmark
 
-We evaluated Jev on 10 Toolathlon tasks by predicting each task's first five ordered tool calls, comparing it with DeepSeek V4.1 Flash. In serial mode, Jev reached **38% position-wise accuracy** versus 24%, achieved a **0.9 mean longest common prefix** versus 0.5, ran about **5.5× faster** (1.58s vs 8.65s per task), and cost about **7× less** ($0.0058 vs $0.0407 for 10 tasks). The experiment measures ordered routing decisions, not end-to-end task completion.
+First-5 tool-call prediction on 10 Toolathlon tasks (real tool inventories from 9 live MCP servers, Jev `typesafe/jev-1.13-20260917` vs DeepSeek V4.1 Flash):
 
-<details>
-<summary id="中文介绍">中文介绍</summary>
+| Metric | Jev serial | Jev decompose + thread | DeepSeek V4.1 Flash |
+|---|---|---|---|
+| Position-wise hits | 38% | **44%** | 24% |
+| Prefix alignment (mean LCP) | 0.9 | **1.6** | 0.5 |
+| Latency per task | **1.58s** | 10.6s | 8.65s |
+| Cost per 10 tasks | **$0.0058** | $0.0055 | ≈ $0.0407 |
 
-JevRouter 是一个本地优先的 Agent 能力路由器，将模型、Subagent、Skill、MCP 工具、CLI 和 DSH 插件统一为候选集，由 Jev 做出类型安全的选择，并由 JevRouter 执行权限、风险、可用性和确认策略。
+Batch mode with beam sequence selection (`--sequence beam`) lifts position-wise hits 28% → 36% at **zero extra provider calls**. The same decompose+thread configuration scores 44% hits / 69% overlap on MCP-Atlas. This experiment measures ordered routing decisions, not end-to-end task completion; method and per-task data in [issue #2](https://github.com/BillionsBobby/JevRouter/issues/2), strategies in [PR #9](https://github.com/BillionsBobby/JevRouter/pull/9).
 
-在 Toolathlon 的 10 个任务中，我们让 Jev 和 DeepSeek V4.1 Flash 预测每个任务前 5 个有序工具调用。Jev 串行模式达到 **38% 的位置命中率**（DeepSeek 为 24%）、**0.9 的平均最长公共前缀**（0.5），速度约快 **5.5 倍**，成本约低 **7 倍**。该实验衡量的是有序路由预测，不是端到端任务完成率。
+## Quickstart
 
-</details>
+Node.js 20+ required. Works with a direct Jev key (`JEV_API_KEY`) or an OpenRouter key (`OPENROUTER_API_KEY`).
 
-## Quick start: Skill + project instructions + CLI
-
-Node.js 20+ is required. In the project you want the Agent to work on, copy this command. It checks Jev, installs the Skill and project instructions, then keeps Codex running with the same key:
+**Give your agent the router** (installs the Skill + project instructions, checks Jev, launches the host):
 
 ```bash
 export OPENROUTER_API_KEY="your-key" && npx --yes github:BillionsBobby/JevRouter agent start --agent codex --provider openrouter
 ```
 
-For Claude Code use `--agent claude`. For a direct Jev API key, use `export JEV_API_KEY="your-typesafe-key"` and omit `--provider openrouter`. The host CLI must already be installed. Its login/model credentials are separate from the Jev decision key.
-
-To install without launching a host (including desktop users):
+For Claude Code use `--agent claude`. To install without launching a host, use `agent setup`; to verify later, use `agent doctor` (`--live` adds a small paid probe):
 
 ```bash
-export OPENROUTER_API_KEY="your-key"; npx --yes github:BillionsBobby/JevRouter agent setup
+npx --yes github:BillionsBobby/JevRouter agent setup          # Skill + project instructions only
+npx --yes github:BillionsBobby/JevRouter agent doctor --live  # configuration + connectivity check
 ```
 
-Default setup installs **Skills and project instructions only**. Codex reads `AGENTS.md` (or the active `AGENTS.override.md`) and `.agents/skills/jevrouter/SKILL.md`; Claude Code reads `CLAUDE.md` and `.claude/skills/jevrouter/SKILL.md`. It adds a small CLI helper, using the installed package instead of downloading a package for each decision. Existing instructions are backed up and appended to; conflicting integration files are preserved with a proposed replacement. No key is written to disk. No base model instructions are replaced.
-
-The `agent start` command stays attached to the launched Agent until that Agent exits; it is the persistent integration entrypoint, while `route` remains a one-shot API/CLI call. The generated Skill and project instructions remain in the project for later sessions. Keep the key exported in the Agent environment; add the export to your shell profile or secret manager if it should survive new terminals. Explicitly invoke **`$jevrouter`** in Codex or **`/jevrouter`** in Claude Code for the first task. Project rules also ask the Agent to route meaningful capability choices automatically. Skill instructions guide the host; they cannot intercept every built-in tool.
-
-The Agent gathers its real available candidates and runs Jev before choosing a next step. Expect visible `JevRouter START` / `END`, JSON status, a decision ID and an append-only receipt. Setup's `CHECK passed` proves only connectivity, not that a later task was routed.
+**Route one decision** (no registry needed — pass candidates inline):
 
 ```bash
-npx --yes github:BillionsBobby/JevRouter agent doctor        # local configuration, no API call
-npx --yes github:BillionsBobby/JevRouter agent doctor --live # also perform a small paid Jev check
+OPENROUTER_API_KEY="your-key" npx --yes github:BillionsBobby/JevRouter route --provider openrouter \
+  --request "Find original sources before summarizing" \
+  --candidates '[{"name":"search_web","description":"Find web sources"},{"name":"summarize","description":"Summarize existing sources"}]'
 ```
 
-`--skip-check` on setup is available for offline installation; it never claims API validation. MCP is optional with `agent setup --with-mcp`; see [Agent integration](docs/agent-integration.md).
-
-### CLI / SDK
-
-No registry or `init` is required if you supply candidates. Use actual host capabilities rather than copying the example names below.
+**Plan a multi-step task**:
 
 ```bash
-OPENROUTER_API_KEY="your-key" npx --yes github:BillionsBobby/JevRouter route --provider openrouter --request "Find original sources before summarizing" --candidates '[{"name":"search_web","description":"Find web sources"},{"name":"summarize","description":"Summarize existing sources"}]'
+OPENROUTER_API_KEY="your-key" npx --yes github:BillionsBobby/JevRouter plan --provider openrouter \
+  --request "Search sources about Jev, summarize them, save to notes.md" \
+  --candidates-file candidates.json --steps 3 --mode serial
 ```
 
-For Agent calls, `route --stdin` accepts a JSON `{request, context?, candidates, input?, actor_permissions?}` object, with no shell interpolation of the request. `--candidates-file` also accepts JSON/YAML arrays or `{candidates: [...]}`. Progress goes to stderr; stdout is one JSON object. Exit codes are 0 for selected, 2 for review/no-decision, and 1 for errors. Empty candidates and missing keys are errors; demo mode must be explicit.
+**SDK**:
 
 ```bash
 npm install github:BillionsBobby/JevRouter
 ```
 
 ```ts
-import { route } from "jevrouter";
+import { route, plan } from "jevrouter";
+
 const decision = await route({ request, candidates: agentTools });
+const planResult = await plan({ request, candidates: agentTools }, { steps: 3, mode: "batch", sequence: "beam" });
 ```
 
-SDK and CLI share provider selection; real Jev calls are the default. SDK callers can explicitly opt into the local cache with `{cache: true}`. Capabilities still execute through the host's permission system. JevRouter does not change a host's current model or create a Subagent by returning an ID.
+Try everything offline with the labelled demo provider (`--provider demo`) — no key required.
+
+## Cookbook
+
+Task-oriented recipes, each with exact commands and expected output:
+
+| Recipe | What it covers |
+|---|---|
+| [Route your first request](docs/cookbook/01-route-your-first-request.md) | CLI one-shot, inline candidates, exit codes, demo mode |
+| [Multi-step plans](docs/cookbook/02-multi-step-plans.md) | serial vs batch vs decompose, beam sequences, strategies |
+| [Use with Codex](docs/cookbook/03-use-with-codex.md) | `agent setup/start/doctor`, `$jevrouter` Skill, MCP option |
+| [Use with Claude Code](docs/cookbook/04-use-with-claude-code.md) | same flow for Claude Code (`/jevrouter`) |
+| [MCP adapter](docs/cookbook/05-mcp-adapter.md) | `serve-mcp` stdio server, `jev_route` tool, host MCP configs |
+| [Custom candidates & discovery](docs/cookbook/06-custom-candidates.md) | manifest contract, OpenAI tool shapes, `discover` |
+| [Policy, risk & confirmation](docs/cookbook/07-policy-and-confirmation.md) | `policy.json`, confidence gates, `no_decision`, permissions |
+| [Offline, caching & receipts](docs/cookbook/08-offline-and-caching.md) | demo provider, cache control, provenance, receipts |
+
+## How it works
+
+1. **Choose the model.** Route by capability, latency, cost, and context without rewriting your agent loop.
+2. **Every tool surface.** Skill, MCP, or plugin — routed through the same Jev decision layer with permissions, risk, and confirmation intact.
+3. **Choose the specialist.** Delegate research, coding, and focused work to the subagent built for the request.
+
+Single decisions go through one Jev Choice call. When `single_stage_max_candidates` is exceeded, JevRouter keeps the coarse Top-K first, then asks Jev for a final Choice over the reduced set; both raw responses are preserved in `raw_jev_stages`.
+
+## Multi-step plans
+
+`route` answers one question. `plan` answers "which capability should handle step 1..N of this request?":
+
+- **Serial** (default): one full routing decision per step; earlier selections are appended to the state so later steps are conditioned on the plan so far. Any candidate count.
+- **Batch**: all step questions in a single provider call over the same candidate set — cheapest and fastest; bounded by `single_stage_max_candidates`.
+- **Decompose**: split the request into ordered sub-goals (built-in `rule` splitter or an injected `DecomposeFn`, e.g. an LLM that sees the tool catalog), then route each sub-goal as a single-step decision.
+
+Strategy knobs: `sequence: "beam"` + `diversity_penalty` (joint sequence search with a repetition penalty), `thread_context` (plan context in each decomposed step), `group_by` (hierarchical server/type routing), `state_detail: "targets"`, `plan_hint`. Every step remains a full routing decision with per-step policy, fallback and raw responses. Plans are append-only receipts in `.jevrouter/plans/`. Details and measurements: [cookbook #2](docs/cookbook/02-multi-step-plans.md).
+
+## Interfaces
+
+| Interface | Entry | Notes |
+|---|---|---|
+| CLI | `route`, `plan`, `discover`, `decision show`, `serve`, `agent` | stdout is one JSON object; exit 0 = selected, 2 = review/no-decision, 1 = error |
+| SDK | `route()`, `plan()` | candidates inline or from the local registry |
+| HTTP | `serve --port 8787` | `POST /route`, `GET /capabilities`, `GET /health` |
+| MCP | `serve-mcp` | one `jev_route` tool for MCP-native agents; never executes implicitly |
+
+`route --stdin` accepts a JSON `{request, context?, candidates, input?, actor_permissions?}` object; `--candidates`/`--candidates-file` take JSON/YAML arrays or `{candidates: [...]}`. The same inputs work for `plan`.
 
 ### Beyond Choice: Score, Noul, structured state
 
@@ -124,11 +178,7 @@ Details and more patterns: [Jev primitives](docs/jev-primitives.md).
 Capability discovery accepts local Skill directories, MCP server configuration, CLI names, and DSH plugin manifests:
 
 ```bash
-npm run dev -- discover \
-  --skills examples/skills \
-  --mcp examples/mcp.json \
-  --cli git,docker \
-  --dsh examples/dsh
+npm run dev -- discover --skills examples/skills --mcp examples/mcp.json --cli git,docker --dsh examples/dsh
 ```
 
 Skill discovery reads `SKILL.md` frontmatter, CLI discovery only calls `<command> --help`, MCP discovery performs `initialize` and `tools/list`, and DSH discovery reads JSON manifests. Discovered capabilities are converted into manifests and written only when their destination does not already exist. Secrets stay in the child process environment and are not copied into manifests.
@@ -149,52 +199,21 @@ Skill discovery reads `SKILL.md` frontmatter, CLI discovery only calls `<command
 
 When Jev selects a filtered candidate, the router can choose the highest-probability safe candidate, but records that fact in `fallback.reason` and keeps `jev_choice` unchanged. When confidence is below policy, the result is `no_decision` and `selected` is `null`.
 
-## Multi-step plans
-
-`route` answers one question. `plan` answers "which capability should handle step 1..N of this request?" in two modes:
-
-- **Serial** (default): one full routing decision per step. The capabilities selected in earlier steps are appended to the state (`Capabilities already routed in previous steps, in order: ...`), so later steps are conditioned on the plan so far. Works with any candidate count; two-stage routing still applies per step.
-- **Batch**: all step questions (`step1`..`stepN`) are asked in a single provider call over the same candidate set — the cheapest and fastest shape. Requires the candidate count to fit `single_stage_max_candidates` (no per-step two-stage); use serial mode for larger sets.
-
-```bash
-npm run dev -- plan --request "查找 owner/repo 的登录失败 issue 并汇总成报告保存到本地" --steps 3 --mode serial
-npm run dev -- plan --request "search issues then summarize them" --steps 3 --mode batch
-```
-
-```ts
-import { plan } from "jevrouter";
-
-const result = await plan({ request: "search issues then summarize them", candidates: tools }, { steps: 3, mode: "batch" });
-```
-
-The plan contract reuses the routing contract per step:
-
-- `steps[]` is a list of full routing decisions with an added 1-based `step` index: per-step `selected`, `jev_choice`, `status`, candidate probabilities and `router` annotations, and per-step `fallback`. The confidence threshold and filters apply to every step independently.
-- Batch mode stores the single provider envelope in `plan.raw_jev` (per-step `raw_jev` is `null`); serial mode keeps each step's own `raw_jev` (plan-level `raw_jev` is `null`).
-- Serial mode feeds only post-policy `selected` capabilities forward; a `no_decision` step adds nothing to the state.
-- Plans are saved append-only to `.jevrouter/plans/`, alongside decisions.
-
-### Plan strategies
-
-`plan()` accepts strategy knobs (CLI flags in parentheses):
-
-- `decompose: "rule" | DecomposeFn` (`--decompose rule`): split the request into ordered sub-goals first — built-in discourse-marker splitter, or an injected function (e.g. an LLM that sees the tool catalog) — then route each sub-goal as a single-step decision. Decomposition turns a multi-step request into the single-action questions Jev answers most confidently.
-- `thread_context: true`: in decompose mode, include the original request, the `Sub-goal k of N` marker, and the capabilities routed so far in each step's state.
-- `sequence: "beam"` with `diversity_penalty: λ` (`--sequence beam --diversity-penalty 2.0`): batch mode only. Instead of independent per-step argmax, beam-search the joint sequence over Jev's per-step probability distributions with a repetition penalty. Jev keeps its probabilities; `jev_choice` still reports the per-step argmax and the override is recorded in `fallback.reason`. The same `diversity_penalty` also enables per-step diversity re-ranking in serial/decompose modes.
-- `group_by: "server" | "type"` (`--group-by server`): hierarchical routing — a coarse Choice over candidate groups (manifest `metadata.group`/`metadata.server`, falling back to the capability type), then a Choice within the winning group. Both calls are preserved in `raw_jev_stages`.
-- `state_detail: "targets"` (`--state-detail targets`): serial mode adds concrete targets (files, URLs, identifiers) extracted from the request to the state.
-- `plan_hint: string[]` (SDK only): include an ordered plan sketch in every serial step's state.
-
-Measured on 10 Toolathlon tasks (first-5 tool-call prediction vs hand-labeled gold, real tool inventories from 9 live MCP servers, Jev `typesafe/jev-1.13-20260917`): position-wise hits went from 38% (serial baseline) to **44%** with tool-aware LLM decomposition + `thread_context`, unordered overlap from 54% to **58%**; batch mode with `sequence: "beam"` (λ=2.0) went from 28% to **36%** hits at zero extra provider calls. The same decompose+thread configuration lifted MCP-Atlas (10 tasks) from 29% to **44%** hits. Standalone `group_by` and `state_detail: "targets"` did not improve the baseline in these runs — they are available as options, and the negative result is documented for future tuning.
-
 ## Security posture
 
-- Decision-only is the only mode in this MVP; no CLI, Skill, MCP or DSH action runs implicitly.
+- Decision-only is the only mode; no CLI, Skill, MCP or DSH action runs implicitly.
 - Medium/high/critical capabilities require confirmation by default.
 - Missing permissions, unavailable capabilities and disallowed risk levels are hard filters.
 - API keys are read from environment variables and never written to manifests or decision files.
 - Decision files are append-only; rerunning a route creates a new decision ID.
-- CLI routes call the provider live with cache disabled; SDK caching is opt-in.
+- CLI routes call the provider live with cache disabled; SDK caching is opt-in (`{cache: true}`).
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — module boundaries and the decision contract
+- [Agent integration](docs/agent-integration.md) — Skill + instructions + MCP details for Codex and Claude Code
+- [Cookbook](docs/cookbook/README.md) — task-oriented recipes
+- [Validation notes](docs/validation/skill-cli.md) — how the Skill/CLI integration is tested
 
 ## Scope and evidence
 
@@ -206,6 +225,32 @@ What the official docs establish, verified against the live API:
 - **Structured state is first-class.** `RouteInput.context` (and `actor`) are sent as a JSON object — `{request, actor?, context}` — instead of being flattened into the request string; a bare request stays a plain string. Jev's primary training language is English; other languages, including CJK, work but currently score lower accuracy, so English state is the safer default.
 - **Three primitives, one call.** Choice, Score, and Noul questions can be mixed in a single request — see [Jev primitives](docs/jev-primitives.md) and the SDK `evaluate()` below.
 
+<details>
+<summary id="中文介绍">中文介绍</summary>
+
+## 中文介绍
+
+JevRouter 是一个本地优先的 Agent 能力路由器，将模型、Subagent、Skill、MCP 工具、CLI 和 DSH 插件统一为候选集，由 Jev 做出类型安全的选择，并由 JevRouter 执行权限、风险、可用性和确认策略。核心约定：**Jev 拥有决策概率，JevRouter 拥有可用性、权限、风险与确认**。
+
+- `route` 回答单个选择问题；`plan` 回答"第 1..N 步分别用哪个能力"，支持 serial / batch / decompose 三种模式与 beam 序列搜索等策略。
+- 默认只做决策不执行；中高风险能力默认需要确认；决策与计划回执 append-only 落盘，含溯源哈希。
+
+在 Toolathlon 的 10 个任务中预测前 5 个有序工具调用：Jev 串行模式位置命中率 **38%**（DeepSeek V4.1 Flash 为 24%），分解+上下文策略提升至 **44%**，速度约快 **5.5 倍**、成本约低 **7 倍**。该实验衡量有序路由预测，不是端到端任务完成率；方法与逐题数据见 [issue #2](https://github.com/BillionsBobby/JevRouter/issues/2)。
+
+快速开始（Node.js 20+）：
+
+```bash
+export OPENROUTER_API_KEY="your-key" && npx --yes github:BillionsBobby/JevRouter agent start --agent codex --provider openrouter
+```
+
+更多示例见 [Cookbook](docs/cookbook/README.md)。
+
+</details>
+
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, test commands and PR conventions.
+
 ## License
 
-MIT.
+[MIT](LICENSE).

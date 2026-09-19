@@ -56,15 +56,7 @@ export class JevRouter {
     const ordered = sortCandidates(candidates);
     const base = this.baseResult(ordered);
 
-    if (ordered.length === 0) {
-      return {
-        ...base,
-        status: "no_decision",
-        decision: { kind: "choice", question: "Which single capability should handle this request?", selected: null, jev_choice: null, candidates: [] },
-        fallback: { type: "no_safe_candidate", reason: "No capability candidates were supplied" },
-        raw_jev: null,
-      };
-    }
+    if (ordered.length === 0) return emptyCandidateResult(base);
 
     let decided: DecidedAnswer;
     try {
@@ -106,6 +98,22 @@ export class JevRouter {
       throw new Error("group_by hierarchical routing is not supported in batch mode; use serial or decompose mode");
     }
     const ordered = sortCandidates(candidates);
+    if (ordered.length === 0) {
+      // Empty candidate sets never reach the provider: every step is an
+      // explicit no_decision receipt, mirroring route()'s contract.
+      const emptySteps = Array.from({ length: steps }, (_, index) => ({ step: index + 1, ...emptyCandidateResult(this.baseResult(ordered)) }));
+      return {
+        plan_id: requestId("plan"),
+        mode,
+        steps: emptySteps,
+        raw_jev: null,
+        provenance: {
+          jev_provider: this.provider.name,
+          candidate_snapshot_hash: sha256(ordered),
+          policy_hash: sha256(this.policy),
+        },
+      };
+    }
     const outcome = options.decompose
       ? await this.planDecomposed(input, ordered, options)
       : mode === "batch"
@@ -180,7 +188,7 @@ export class JevRouter {
   /** Hierarchical routing: coarse Choice over candidate groups, then a Choice within the winning group. */
   private async routeHierarchical(input: RouteInput, ordered: CapabilityManifest[], groupBy: "server" | "type", step?: number): Promise<RouteResult> {
     const base = this.baseResult(ordered);
-    if (ordered.length === 0) return this.errorResult(base, input, new JevProviderError("jev_malformed_response", "No capability candidates were supplied"), ordered);
+    if (ordered.length === 0) return emptyCandidateResult(base);
     const state = renderState(input);
     const groups = new Map<string, CapabilityManifest[]>();
     for (const candidate of ordered) {
@@ -436,6 +444,16 @@ export class JevRouter {
 
 function sortCandidates(candidates: CapabilityManifest[]): CapabilityManifest[] {
   return [...candidates].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function emptyCandidateResult(base: { request_id: string; decision_id: string; mode: "decision_only"; execution: { enabled: false; status: "not_started" }; provenance: RouteResult["provenance"] }): RouteResult {
+  return {
+    ...base,
+    status: "no_decision",
+    decision: { kind: "choice", question: "Which single capability should handle this request?", selected: null, jev_choice: null, candidates: [] },
+    fallback: { type: "no_safe_candidate", reason: "No capability candidates were supplied" },
+    raw_jev: null,
+  };
 }
 
 function singleStageDecision(answer: JevChoiceAnswer, covered: CapabilityManifest[], raw: JevRawResponse | null): DecidedAnswer {
