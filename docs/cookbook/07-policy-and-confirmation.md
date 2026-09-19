@@ -50,8 +50,8 @@ Expected: `cache_delete` is filtered (`router.filtered: true`, `filter_reason: "
 
 | Code | When |
 |---|---|
-| 0 | `selected` (route) / every plan step selected or needs_confirmation |
-| 2 | review needed: `needs_confirmation` / `no_decision` on route, or any plan step `no_decision` |
+| 0 | `selected` (route) / every plan step selected |
+| 2 | review needed: `needs_confirmation` / `no_decision` on route, or any plan step `needs_confirmation` / `no_decision` |
 | 1 | hard error (bad input, provider failure) |
 
 `no_decision` is not a failure of the call — it is the router refusing to commit below policy. The receipt keeps `jev_choice`, probabilities and `fallback.reason` so you can fall back to your reasoning model with full context.
