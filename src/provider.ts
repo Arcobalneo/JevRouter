@@ -186,28 +186,35 @@ export class DemoProvider implements JevProvider {
 
   async decide(request: JevRouteRequest): Promise<JevRawResponse> {
     const requestTokens = tokenize(stateToText(request.state));
-    const rawScores = request.candidates.map((candidate) => {
-      const haystack = tokenize(`${candidate.id} ${candidate.name} ${candidate.description} ${(candidate.metadata?.tags ?? "") as string}`);
-      const overlap = [...requestTokens].filter((token) => haystack.has(token)).length;
-      const sourceBoost = candidate.type === "mcp_tool" ? 0.03 : 0;
-      return { candidate, score: overlap + sourceBoost + 0.01 };
-    });
-    const total = rawScores.reduce((sum, item) => sum + item.score, 0);
-    const probabilities = Object.fromEntries(rawScores.map(({ candidate, score }) => [candidate.id, score / total]));
-    const choice = [...rawScores].sort((a, b) => b.score - a.score || a.candidate.id.localeCompare(b.candidate.id))[0]?.candidate.id;
-    const top = choice ? probabilities[choice] : 0;
-    const confidence = rawScores.length <= 1
-      ? 1
-      : clamp((top - 1 / rawScores.length) / Math.max(1 - 1 / rawScores.length, 0.0001));
-    const choiceAnswer: JevChoiceAnswer = { type: "choice", choice: choice ?? "", probabilities, confidence };
     const requested: Record<string, JevRouteQuestion> = request.questions ?? { [DEFAULT_TOOL_QUESTION]: {} };
     const answers = Object.fromEntries(Object.entries(requested).map(([key, question]) => {
+      if ((question.type ?? "choice") === "choice") {
+        const criteria = question.criteria ?? Object.fromEntries(
+          request.candidates.map((candidate) => [candidate.id, describeCapability(candidate)]),
+        );
+        if (Object.keys(criteria).length === 0) {
+          throw new Error(`questions.${key}: choice questions need at least one criterion (supply candidates or an explicit criteria map)`);
+        }
+        const rawScores = Object.entries(criteria).map(([id, criterion]) => ({
+          id,
+          score: [...requestTokens].filter((token) => tokenize(stateToText(criterion)).has(token)).length + 0.01,
+        }));
+        const total = rawScores.reduce((sum, item) => sum + item.score, 0);
+        const probabilities = Object.fromEntries(rawScores.map(({ id, score }) => [id, score / total]));
+        const choice = [...rawScores].sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))[0]?.id ?? "";
+        const top = choice ? probabilities[choice] : 0;
+        const confidence = rawScores.length <= 1
+          ? 1
+          : clamp((top - 1 / rawScores.length) / Math.max(1 - 1 / rawScores.length, 0.0001));
+        const choiceAnswer: JevChoiceAnswer = { type: "choice", choice, probabilities, confidence };
+        return [key, choiceAnswer];
+      }
       if (question.type === "score") {
         const levels = Array.isArray(question.criteria) ? question.criteria : [];
         if (levels.length === 0) {
           throw new Error(`questions.${key}: score questions require a non-empty criteria array of ordered levels`);
         }
-        const levelScores = levels.map((level) => [...requestTokens].filter((token) => tokenize(stateToText(level as never)).has(token)).length + 0.01);
+        const levelScores = levels.map((level) => [...requestTokens].filter((token) => tokenize(stateToText(level)).has(token)).length + 0.01);
         const levelTotal = levelScores.reduce((sum, score) => sum + score, 0);
         const levelProbabilities = Object.fromEntries(levelScores.map((score, index) => [String(index), levelTotal ? score / levelTotal : 0]));
         const expected = levelScores.reduce((sum, score, index) => sum + index * (levelTotal ? score / levelTotal : 0), 0);
@@ -215,11 +222,11 @@ export class DemoProvider implements JevProvider {
       }
       if (question.type === "noul") {
         const criteria = question.criteria ?? { true: "true", false: "false" };
-        const trueScore = [...requestTokens].filter((token) => tokenize(stateToText(criteria.true as never)).has(token)).length + 0.01;
-        const falseScore = [...requestTokens].filter((token) => tokenize(stateToText(criteria.false as never)).has(token)).length + 0.01;
+        const trueScore = [...requestTokens].filter((token) => tokenize(stateToText(criteria.true)).has(token)).length + 0.01;
+        const falseScore = [...requestTokens].filter((token) => tokenize(stateToText(criteria.false)).has(token)).length + 0.01;
         return [key, { type: "noul", noul: clamp(trueScore / (trueScore + falseScore)) }];
       }
-      return [key, choiceAnswer];
+      throw new Error(`questions.${key}: unsupported question type`);
     }));
     return {
       model: "jevrouter-demo",
@@ -229,8 +236,8 @@ export class DemoProvider implements JevProvider {
   }
 }
 
-function stateToText(state: JevRouteRequest["state"]): string {
-  return typeof state === "string" ? state : JSON.stringify(state);
+function stateToText(state: unknown): string {
+  return typeof state === "string" ? state : JSON.stringify(state) ?? String(state);
 }
 
 export function getChoiceAnswer(raw: JevRawResponse, key: string = DEFAULT_TOOL_QUESTION): JevChoiceAnswer {

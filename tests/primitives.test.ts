@@ -104,6 +104,25 @@ test("demo provider answers all three primitives with labelled offline answers",
   assert.equal(raw.model, "jevrouter-demo");
 });
 
+test("demo provider uses explicit Choice criteria without a candidate manifest", async () => {
+  const raw = await evaluate(
+    {
+      state: "The checkout payment is failing",
+      questions: {
+        team: {
+          type: "choice",
+          instructions: "Which team should handle this?",
+          criteria: { payments: "billing and checkout issues", frontend: "browser rendering issues" },
+        },
+      },
+    },
+    { provider: "demo" },
+  );
+  const answer = getChoiceAnswer(raw, "team");
+  assert.equal(answer.choice, "payments");
+  assert.deepEqual(Object.keys(answer.probabilities), ["payments", "frontend"]);
+});
+
 test("answer extractors reject malformed answers", async () => {
   const provider = new RecordingProvider({ answers: { s: { type: "score", score: "high" }, n: { type: "noul", noul: 1.7 } } });
   const raw = await provider.decide({ state: "x", candidates });
