@@ -8,12 +8,12 @@ import { discoverMcpConfig } from "./mcp.js";
 import { discoverClis, discoverDsh, discoverSkills } from "./discovery.js";
 import { JevRouter } from "./router.js";
 import { createProvider } from "./runtime.js";
-import { saveDecision, savePlan } from "./store.js";
+import { saveDecision } from "./store.js";
 import type { CapabilityManifest, RouteInput } from "./types.js";
 import { startMcpServer } from "./mcp-server.js";
 import { doctorAgents, setupAgents } from "./agent-setup.js";
 import { parse } from "yaml";
-import { probeJev, runRouteRequest } from "./route-command.js";
+import { probeJev, runPlanRequest, runRouteRequest } from "./route-command.js";
 
 const root = process.cwd();
 const registry = new CapabilityRegistry(join(root, ".jevrouter", "capabilities"));
@@ -116,35 +116,43 @@ async function readText(stream: AsyncIterable<Buffer | string>): Promise<string>
 }
 
 async function plan(args: string[]): Promise<void> {
-  const request = option(args, "--request");
-  if (!request) throw new Error("usage: jevrouter plan --request \"...\" [--steps 5] [--mode batch|serial] [--sequence argmax|beam] [--diversity-penalty 1.0] [--group-by server|type] [--decompose rule] [--state-detail names|targets] [--provider demo|typesafe|openrouter]");
-  const steps = option(args, "--steps") === undefined ? undefined : Number(option(args, "--steps"));
-  const mode = option(args, "--mode");
-  if (mode !== undefined && mode !== "batch" && mode !== "serial") throw new Error("--mode must be batch or serial");
-  if (steps !== undefined && (!Number.isInteger(steps) || steps < 1)) throw new Error("--steps must be a positive integer");
-  const sequence = option(args, "--sequence");
-  if (sequence !== undefined && sequence !== "argmax" && sequence !== "beam") throw new Error("--sequence must be argmax or beam");
-  const diversityPenalty = option(args, "--diversity-penalty") === undefined ? undefined : Number(option(args, "--diversity-penalty"));
-  if (diversityPenalty !== undefined && Number.isNaN(diversityPenalty)) throw new Error("--diversity-penalty must be a number");
-  const groupBy = option(args, "--group-by");
-  if (groupBy !== undefined && groupBy !== "server" && groupBy !== "type") throw new Error("--group-by must be server or type");
-  const decompose = option(args, "--decompose");
-  if (decompose !== undefined && decompose !== "rule") throw new Error("--decompose only supports the built-in rule splitter from the CLI");
-  const stateDetail = option(args, "--state-detail");
-  if (stateDetail !== undefined && stateDetail !== "names" && stateDetail !== "targets") throw new Error("--state-detail must be names or targets");
-  const policy = await loadPolicyFile(option(args, "--policy") ?? join(root, ".jevrouter", "policy.json"));
-  const provider = createProvider(option(args, "--provider"));
-  const candidates = await registry.list();
-  const actorPermissions = option(args, "--actor-permissions")?.split(",").map((value) => value.trim()).filter(Boolean);
-  const actor = option(args, "--actor");
-  const result = await new JevRouter(provider, policy).plan({ request, actor, actor_permissions: actorPermissions }, candidates, {
-    steps, mode,
-    sequence, diversity_penalty: diversityPenalty,
-    group_by: groupBy, decompose: decompose as "rule" | undefined,
-    state_detail: stateDetail,
-  });
-  const outputPath = await savePlan(result);
-  console.log(JSON.stringify({ ...result, saved_to: outputPath }, null, 2));
+  let payload: Record<string, unknown>;
+  if (args.includes("--stdin")) {
+    if (process.stdin.isTTY) throw new Error("--stdin requires a piped JSON request");
+    payload = JSON.parse(await readText(process.stdin)) as Record<string, unknown>;
+  } else {
+    const request = option(args, "--request");
+    const candidatesFile = option(args, "--candidates-file");
+    const inlineCandidates = option(args, "--candidates");
+    if (inlineCandidates && candidatesFile) throw new Error("Use --candidates or --candidates-file, not both");
+    let candidates: unknown;
+    if (candidatesFile || inlineCandidates) {
+      const parsed = parse(candidatesFile ? await readFile(candidatesFile, "utf8") : inlineCandidates!);
+      candidates = Array.isArray(parsed) ? parsed : (parsed as { candidates?: unknown[] } | null)?.candidates;
+      if (!Array.isArray(candidates)) throw new Error("Candidates must be an array or { candidates: [...] }");
+    }
+    const steps = option(args, "--steps") === undefined ? undefined : Number(option(args, "--steps"));
+    if (steps !== undefined && (!Number.isInteger(steps) || steps < 1)) throw new Error("--steps must be a positive integer");
+    const diversityPenalty = option(args, "--diversity-penalty") === undefined ? undefined : Number(option(args, "--diversity-penalty"));
+    if (diversityPenalty !== undefined && Number.isNaN(diversityPenalty)) throw new Error("--diversity-penalty must be a number");
+    payload = {
+      request, candidates, steps,
+      mode: option(args, "--mode"),
+      sequence: option(args, "--sequence"),
+      diversity_penalty: diversityPenalty,
+      group_by: option(args, "--group-by"),
+      decompose: option(args, "--decompose"),
+      state_detail: option(args, "--state-detail"),
+      thread_context: args.includes("--thread-context") ? true : undefined,
+      context: option(args, "--context") === undefined ? undefined : JSON.parse(option(args, "--context")!),
+      actor: option(args, "--actor"),
+      actor_permissions: option(args, "--actor-permissions")?.split(",").filter(Boolean),
+    };
+  }
+  const result = await runPlanRequest(payload, root, { provider: option(args, "--provider"), policy: option(args, "--policy") }, message => console.error(message));
+  console.log(JSON.stringify(result, null, 2));
+  process.exitCode = result.steps.some((step: { error?: unknown }) => step.error) ? 1
+    : result.steps.some((step: { status: string }) => step.status !== "selected") ? 2 : 0;
 }
 
 async function decision(args: string[]): Promise<void> {
@@ -253,7 +261,9 @@ Commands:
   discover [--skills <dir>] [--mcp <mcp.json>] [--cli git,docker] [--dsh <dir-or-file>]
   decision show <decision-id>
   route --stdin | --request "..." [--candidates-file ./candidates.json] [--candidates JSON] [--input '{"query":"..."}'] [--actor-permissions read,write] [--provider demo|typesafe|openrouter]
-  plan --request "..." [--steps 5] [--mode batch|serial] [--provider demo|typesafe|openrouter]
+  plan --stdin | --request "..." [--candidates-file ./candidates.json] [--candidates JSON] [--steps 5] [--mode batch|serial]
+       [--sequence argmax|beam] [--diversity-penalty 1.0] [--group-by server|type] [--decompose rule] [--thread-context]
+       [--state-detail names|targets] [--provider demo|typesafe|openrouter]
   serve [--port 8787] [--provider demo|typesafe|openrouter]
   serve-mcp [--provider demo|typesafe|openrouter]  stdio MCP server for Agents
   agent setup [--agent codex|claude|all] [--provider typesafe|openrouter] [--skip-check] [--with-mcp]

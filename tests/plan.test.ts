@@ -210,3 +210,13 @@ test("sequence reranking does not select a candidate whose input schema rejects 
   assert.equal(plan.steps[1].decision.selected, "a.read");
   assert.equal(plan.steps[1].decision.input_validation?.valid, true);
 });
+
+test("plan with zero candidates returns no_decision steps without calling the provider", async () => {
+  const provider = new RecordingProvider(() => { throw new Error("must not be called"); });
+  const plan = await new JevRouter(provider).plan({ request: "anything" }, [], { steps: 3, mode: "serial" });
+  assert.equal(provider.calls.length, 0);
+  assert.equal(plan.steps.length, 3);
+  assert.ok(plan.steps.every((step) => step.status === "no_decision"));
+  assert.equal(plan.steps[0].fallback.type, "no_safe_candidate");
+  assert.equal(plan.raw_jev, null);
+});
