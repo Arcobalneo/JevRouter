@@ -151,8 +151,8 @@ async function plan(args: string[]): Promise<void> {
   }
   const result = await runPlanRequest(payload, root, { provider: option(args, "--provider"), policy: option(args, "--policy") }, message => console.error(message));
   console.log(JSON.stringify(result, null, 2));
-  process.exitCode = result.steps.every((step: { error?: unknown }) => step.error) ? 1
-    : result.steps.some((step: { status: string }) => step.status === "no_decision") ? 2 : 0;
+  process.exitCode = result.steps.some((step: { error?: unknown }) => step.error) ? 1
+    : result.steps.some((step: { status: string }) => step.status !== "selected") ? 2 : 0;
 }
 
 async function decision(args: string[]): Promise<void> {
